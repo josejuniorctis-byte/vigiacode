@@ -1,0 +1,15 @@
+packages:
+  - packages/*
+
+# Settings do pnpm 11+/12 (o .npmrc cobre versões mais antigas).
+storeDir: .pnpm-store
+nodeLinker: hoisted
+
+# Permite que better-sqlite3 (binário nativo) e esbuild rodem os scripts de
+# instalação. `onlyBuiltDependencies` cobre pnpm 10; `allowBuilds` cobre pnpm 11+.
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+coverage/
+pnpm-lock.yaml
+*.tsbuildinfo
+.pnpm-store/
+.pnpm-cache/
+.pnpm-state/
+.pnpm-home/
+.npm-cache/
+packages/cli/drizzle/
+
+node_modules*/

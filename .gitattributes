@@ -1,0 +1,12 @@
+# Normaliza fim de linha para LF em todos os sistemas (evita quebra do Prettier
+# em checkouts Windows com core.autocrlf=true).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

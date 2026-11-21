@@ -1,0 +1,33 @@
+{
+  "name": "codeanchor-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CodeAnchor — AI Dev Companion e rastreador de arquitetura para projetos desenvolvidos com agentes de IA.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "codeanchor": "node packages/cli/dist/index.js",
+    "dev": "pnpm -r run dev",
+    "build": "pnpm -r run build",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.20.0"
+  }
+}

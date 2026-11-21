@@ -1,0 +1,35 @@
+# Dependências
+node_modules*/
+.pnpm-store/
+.pnpm-cache/
+.pnpm-state/
+.pnpm-home/
+.npm-cache/
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# CodeAnchor (estado local de cada projeto)
+.codeanchor/
+
+# Testes e cobertura
+coverage/
+.vitest/
+
+# Ambiente
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editores e sistema
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

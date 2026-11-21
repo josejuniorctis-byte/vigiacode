@@ -4,10 +4,12 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AiStatusTracker } from '../ai/status.js';
+import { createDefaultConfig } from '../config.js';
 import {
   applyMigrations,
   findProjectByRootPath,
   insertChangeEvents,
+  insertSnapshot,
   openDatabase,
   registerProject,
   type OpenedDatabase,
@@ -347,6 +349,258 @@ describe('GET /api/ai/status', () => {
   });
 });
 
+describe('rotas do dashboard', () => {
+  let opened: OpenedDatabase;
+  let project: Project;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    opened = openDatabase(':memory:');
+    applyMigrations(opened.db);
+    project = registerProject(opened.db, {
+      name: 'projeto-dashboard',
+      rootPath: path.resolve('/tmp/projeto-dashboard'),
+    });
+    app = await createServer({
+      db: opened.db,
+      project,
+      version: '1.2.3',
+      webDistPath: null,
+      config: createDefaultConfig({
+        name: 'projeto-dashboard',
+        rootPath: '/tmp/projeto-dashboard',
+      }),
+      gitInfo: { branch: 'main', commitHash: 'abcdef1234567890' },
+    });
+  });
+
+  afterEach(async () => {
+    await app.close();
+    opened.close();
+  });
+
+  it('filtra eventos por busca textual e período', async () => {
+    insertChangeEvents(opened.db, [
+      {
+        projectId: project.id,
+        filePath: 'src/api/users.ts',
+        changeType: 'change',
+        diff: '+a',
+        layer: 'backend',
+        summary: 'Criou usuário',
+        createdAt: '2026-01-01T10:00:00.000Z',
+      },
+      {
+        projectId: project.id,
+        filePath: 'src/components/Button.tsx',
+        changeType: 'change',
+        diff: '+b',
+        layer: 'frontend',
+        summary: 'Ajustou botão',
+        createdAt: '2026-01-02T10:00:00.000Z',
+      },
+    ]);
+
+    const search = await app.inject({ method: 'GET', url: '/api/events?q=bot%C3%A3o' });
+    const searchBody = search.json() as { events: Array<{ filePath: string; additions: number }> };
+    expect(searchBody.events).toHaveLength(1);
+    expect(searchBody.events[0]?.filePath).toBe('src/components/Button.tsx');
+    expect(searchBody.events[0]?.additions).toBe(1);
+
+    const period = await app.inject({
+      method: 'GET',
+      url: '/api/events?from=2026-01-02T00:00:00.000Z&to=2026-01-02T23:59:59.000Z',
+    });
+    const periodBody = period.json() as { events: Array<{ filePath: string }> };
+    expect(periodBody.events).toHaveLength(1);
+    expect(periodBody.events[0]?.filePath).toBe('src/components/Button.tsx');
+
+    const invalid = await app.inject({ method: 'GET', url: '/api/events?from=ontem' });
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  it('lista snapshots e estatísticas agregadas', async () => {
+    insertSnapshot(opened.db, {
+      projectId: project.id,
+      commitHash: 'aaaaaaa1111',
+      createdAt: '2026-01-01T09:00:00.000Z',
+    });
+    insertSnapshot(opened.db, {
+      projectId: project.id,
+      commitHash: 'bbbbbbb2222',
+      createdAt: '2026-01-02T09:00:00.000Z',
+    });
+
+    insertChangeEvents(opened.db, [
+      {
+        projectId: project.id,
+        filePath: 'src/api/users.ts',
+        changeType: 'change',
+        diff: '+a\n-b',
+        layer: 'backend',
+        batchId: 'lote-1',
+        summary: 'Backend mudou',
+        createdAt: '2026-01-01T10:00:00.000Z',
+      },
+      {
+        projectId: project.id,
+        filePath: 'db/schema.sql',
+        changeType: 'change',
+        diff: '+c',
+        layer: 'database',
+        batchId: 'lote-1',
+        summary: 'Banco mudou',
+        createdAt: '2026-01-01T10:00:01.000Z',
+      },
+      {
+        projectId: project.id,
+        filePath: 'src/api/users.ts',
+        changeType: 'change',
+        diff: '+d',
+        layer: 'backend',
+        batchId: 'lote-2',
+        summary: 'Backend de novo',
+        createdAt: '2026-01-02T11:00:00.000Z',
+      },
+    ]);
+
+    const snapshots = await app.inject({ method: 'GET', url: '/api/snapshots' });
+    const snapshotsBody = snapshots.json() as { snapshots: Array<{ commitHash: string }> };
+    expect(snapshotsBody.snapshots.map((snapshot) => snapshot.commitHash)).toEqual([
+      'bbbbbbb2222',
+      'aaaaaaa1111',
+    ]);
+
+    const stats = await app.inject({ method: 'GET', url: '/api/stats' });
+    const body = stats.json() as {
+      totalEvents: number;
+      totalBatches: number;
+      totalFiles: number;
+      byDay: Array<{ date: string; events: number; batches: number }>;
+      byLayer: Array<{ layer: string; events: number }>;
+      topFiles: Array<{ filePath: string; events: number }>;
+    };
+
+    expect(body.totalEvents).toBe(3);
+    expect(body.totalBatches).toBe(2);
+    expect(body.totalFiles).toBe(2);
+    expect(body.byDay).toHaveLength(2);
+    expect(body.byDay[0]?.date).toBe('2026-01-02');
+    expect(body.byLayer[0]).toEqual({ layer: 'backend', events: 2 });
+    expect(body.topFiles[0]).toMatchObject({ filePath: 'src/api/users.ts', events: 2 });
+  });
+
+  it('devolve o histórico de um arquivo', async () => {
+    insertChangeEvents(opened.db, [
+      {
+        projectId: project.id,
+        filePath: 'src/api/users.ts',
+        changeType: 'change',
+        diff: '+a',
+        layer: 'backend',
+        batchId: 'lote-1',
+        summary: 'Um',
+        createdAt: '2026-01-01T10:00:00.000Z',
+      },
+      {
+        projectId: project.id,
+        filePath: 'src/api/users.ts',
+        changeType: 'change',
+        diff: '+b',
+        layer: 'backend',
+        batchId: 'lote-2',
+        summary: 'Dois',
+        createdAt: '2026-01-02T10:00:00.000Z',
+      },
+      {
+        projectId: project.id,
+        filePath: 'src/outro.ts',
+        changeType: 'change',
+        diff: '+c',
+        layer: 'backend',
+        batchId: 'lote-3',
+        summary: 'Outro',
+        createdAt: '2026-01-02T11:00:00.000Z',
+      },
+    ]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/files/events?path=src%2Fapi%2Fusers.ts',
+    });
+    const body = response.json() as {
+      filePath: string;
+      events: Array<{ filePath: string; summary: string }>;
+    };
+
+    expect(body.filePath).toBe('src/api/users.ts');
+    expect(body.events).toHaveLength(2);
+    expect(body.events[0]?.summary).toBe('Dois');
+
+    const missing = await app.inject({ method: 'GET', url: '/api/files/events' });
+    expect(missing.statusCode).toBe(400);
+  });
+
+  it('expõe config sanitizada e não inclui chaves', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/config' });
+    const body = response.json() as { llm: { provider: string; model: string | null } };
+    expect(body.llm.provider).toBe('none');
+    expect(body.llm.model).toBeNull();
+    expect(JSON.stringify(response.json())).not.toContain('API_KEY');
+  });
+
+  it('POST /api/ai/test responde para provider none', async () => {
+    const response = await app.inject({ method: 'POST', url: '/api/ai/test' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      ok: true,
+      provider: 'none',
+      elapsedMs: 0,
+    });
+  });
+
+  it('POST /api/ai/test explica erro de configuração sem rede', async () => {
+    const opened2 = openDatabase(':memory:');
+    applyMigrations(opened2.db);
+    const project2 = registerProject(opened2.db, {
+      name: 'projeto-ia',
+      rootPath: path.resolve('/tmp/projeto-ia-config'),
+    });
+    const config = createDefaultConfig({
+      name: 'projeto-ia',
+      rootPath: '/tmp/projeto-ia-config',
+      provider: 'openai-compatible',
+      model: 'modelo',
+      baseUrl: null,
+    });
+    const app2 = await createServer({
+      db: opened2.db,
+      project: project2,
+      version: '1.2.3',
+      webDistPath: null,
+      config,
+    });
+
+    try {
+      const response = await app2.inject({ method: 'POST', url: '/api/ai/test' });
+      const body = response.json() as { ok: boolean; error: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain('base_url');
+    } finally {
+      await app2.close();
+      opened2.close();
+    }
+  });
+
+  it('inclui branch e commit no /api/project', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/project' });
+    expect(response.json()).toMatchObject({
+      branch: 'main',
+      commitHash: 'abcdef1234567890',
+    });
+  });
+});
+
 describe('GET /api/events/stream (SSE)', () => {
   it('emite eventos novos e resumos concluídos', async () => {
     const opened = openDatabase(':memory:');
@@ -392,6 +646,9 @@ describe('GET /api/events/stream (SSE)', () => {
         batchId: 'lote-1',
         summary: null,
         createdAt: new Date().toISOString(),
+        additions: 1,
+        deletions: 0,
+        diffTruncated: false,
       };
       hub.publish({ type: 'change', event });
 

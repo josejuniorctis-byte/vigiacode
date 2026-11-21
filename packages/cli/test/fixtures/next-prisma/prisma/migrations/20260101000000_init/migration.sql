@@ -1,0 +1,12 @@
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  obsolete TEXT
+);
+
+CREATE TABLE orders (
+  id SERIAL PRIMARY KEY,
+  total DECIMAL(10, 2) NOT NULL
+);

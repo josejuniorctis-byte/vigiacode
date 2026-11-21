@@ -158,6 +158,44 @@ describe('config', () => {
     expect(compatible.llm.baseUrl).toBeNull();
   });
 
+  it('lê e grava a configuração do detector de amarrações', () => {
+    const projectRoot = makeProject();
+    writeRawConfig(projectRoot, {
+      ...legacyConfig(projectRoot, { provider: 'none' }),
+      bindings: {
+        rules: {
+          R1: { enabled: false, severity: 'yellow' },
+          R9: { enabled: true, severity: 'yellow' },
+        },
+        ignore: ['src/legacy/**'],
+        accepted_false_positives: [
+          'R2:user:nickname',
+          { rule: 'R3', entity: 'user', field: 'obsolete' },
+        ],
+        semanticMatching: false,
+      },
+    });
+
+    const config = readConfig(projectRoot);
+
+    expect(config.bindings.rules.R1).toEqual({ enabled: false, severity: 'yellow' });
+    expect(config.bindings.rules.R9).toEqual({ enabled: true, severity: 'yellow' });
+    expect(config.bindings.rules.R2.enabled).toBe(true);
+    expect(config.bindings.ignore).toEqual(['src/legacy/**']);
+    expect(config.bindings.acceptedFalsePositives).toEqual([
+      'R2:user:nickname',
+      'R3:user:obsolete',
+    ]);
+    expect(config.bindings.semanticMatching).toBe(false);
+
+    writeConfig(projectRoot, config);
+    const raw = JSON.parse(
+      readFileSync(path.join(projectRoot, '.codeanchor', 'config.json'), 'utf8'),
+    ) as { bindings: { rules: Record<string, unknown> } };
+    expect(raw.bindings.rules.R1).toEqual({ enabled: false, severity: 'yellow' });
+    expect(raw.bindings.rules.R10).toEqual({ enabled: false, severity: 'yellow' });
+  });
+
   it('mantém compatibilidade com campos camelCase da Etapa 2', () => {
     const projectRoot = makeProject();
     writeRawConfig(

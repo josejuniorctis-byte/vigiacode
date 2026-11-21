@@ -1,3 +1,5 @@
+import { countDiffStats } from '../ai/heuristic.js';
+import type { BindingsStreamMessage } from '../bindings/types.js';
 import type { ChangeEvent, ChangeEventLayer, ChangeType } from '../db/schema.js';
 
 /** Evento sem o diff, usado em listagens e no stream SSE. */
@@ -10,6 +12,9 @@ export interface PublicChangeEvent {
   batchId: string | null;
   summary: string | null;
   createdAt: string;
+  additions: number;
+  deletions: number;
+  diffTruncated: boolean;
 }
 
 export interface ChangeStreamMessage {
@@ -22,7 +27,7 @@ export interface SummaryStreamMessage {
   event: PublicChangeEvent;
 }
 
-export type EventStreamMessage = ChangeStreamMessage | SummaryStreamMessage;
+export type EventStreamMessage = ChangeStreamMessage | SummaryStreamMessage | BindingsStreamMessage;
 
 export type EventStreamListener = (message: EventStreamMessage) => void;
 
@@ -56,6 +61,7 @@ export class EventHub {
 }
 
 export function toPublicEvent(event: ChangeEvent): PublicChangeEvent {
+  const stats = countDiffStats(event.diff);
   return {
     id: event.id,
     projectId: event.projectId,
@@ -65,5 +71,8 @@ export function toPublicEvent(event: ChangeEvent): PublicChangeEvent {
     batchId: event.batchId,
     summary: event.summary,
     createdAt: event.createdAt,
+    additions: stats.additions,
+    deletions: stats.deletions,
+    diffTruncated: event.diffTruncated,
   };
 }

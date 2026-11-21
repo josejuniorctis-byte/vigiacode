@@ -64,6 +64,16 @@ export class GitRepository {
     }
   }
 
+  /** Branch atual (ou null em detached HEAD / sem commits). */
+  async branchName(): Promise<string | null> {
+    try {
+      const branch = (await this.git.revparse(['--abbrev-ref', 'HEAD'])).trim();
+      return branch.length > 0 && branch !== 'HEAD' ? branch : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Diff de um arquivo, truncado em `maxBytes` (por padrão 200 KB).
    * Nunca lança: em caso de erro de git devolve diff vazio.

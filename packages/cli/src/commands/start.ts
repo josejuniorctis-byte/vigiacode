@@ -3,12 +3,16 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import {
   createAiStatusTracker,
+  createProvider,
   createSummarizer,
   MissingApiKeyError,
   requiresApiKey,
   resolveApiKey,
   type AiStatusTracker,
+  type LLMProvider,
 } from '../ai/index.js';
+import { createBindingsScanner, explainBinding } from '../bindings/index.js';
+import type { BindingsScanner } from '../bindings/index.js';
 import {
   configExists,
   effectiveModel,
@@ -49,6 +53,7 @@ export interface RunningServer {
   watcher: WatcherHandle | null;
   recorder: ChangeRecorder;
   aiStatus: AiStatusTracker;
+  bindingsScanner: BindingsScanner;
   close(): Promise<void>;
 }
 
@@ -114,11 +119,38 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
   const hub = new EventHub();
   const summarizer = createSummarizer(config.llm);
   const aiStatus = createAiStatusTracker(config.llm);
+
+  let llmProvider: LLMProvider | null = null;
+  if (config.llm.provider !== 'none') {
+    try {
+      llmProvider = createProvider(config.llm);
+    } catch (error) {
+      logger.warn(
+        `Detector de amarrações sem IA: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      logger.hint('A explicação continuará disponível no modo heurístico local.');
+    }
+  }
+
+  const bindingsScanner = createBindingsScanner({
+    db: opened.db,
+    project,
+    config,
+    hub,
+    provider: llmProvider,
+    logger: {
+      info: (message: string) => logger.detail(message),
+      warn: (message: string) => logger.warn(message),
+    },
+  });
+
   const git = await GitRepository.open(projectRoot);
   let headHash: string | null = null;
+  let branch: string | null = null;
 
   if (git) {
     headHash = await git.headHash();
+    branch = await git.branchName();
     const initialSnapshot = await syncSnapshot(opened.db, project.id, git);
     if (initialSnapshot) {
       logger.detail(`Snapshot inicial do Git: ${initialSnapshot.commitHash.slice(0, 7)}`);
@@ -169,6 +201,15 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
     webDistPath,
     hub,
     aiStatus,
+    config,
+    gitInfo: { branch, commitHash: headHash },
+    bindingsScanner,
+    explainBinding: (binding) =>
+      explainBinding({
+        binding,
+        provider: llmProvider,
+        model: effectiveModel(config.llm),
+      }),
   });
 
   let watcher: WatcherHandle | null = null;
@@ -185,6 +226,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
       }
     }
     await recorder.queue.drain(3_000);
+    await bindingsScanner.drain(3_000);
     try {
       await app.close();
     } finally {
@@ -221,7 +263,21 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
         projectRoot,
         config: config.watch,
         onBatch: async (changes) => {
-          await recorder.handleBatch(changes);
+          const recorded = await recorder.handleBatch(changes);
+          if (!recorded) return;
+
+          // Scan incremental em background: o vigia não espera a análise.
+          void bindingsScanner
+            .scan({
+              trigger: 'watch',
+              batchId: recorded.batchId,
+              changedFiles: changes.map((change) => change.path),
+            })
+            .catch((error: unknown) => {
+              logger.warn(
+                `Detector de amarrações: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            });
         },
         onError: (error: unknown) => {
           logger.error(`Vigia: ${error instanceof Error ? error.message : String(error)}`);
@@ -236,6 +292,23 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
       logger.hint('A API continua ativa, mas nenhuma mudança será capturada.');
     }
   }
+
+  // Scan completo em background: o servidor já está no ar enquanto analisamos.
+  void bindingsScanner
+    .scan({ trigger: 'start' })
+    .then((result) => {
+      if (!result) return;
+      const counts = result.summary;
+      logger.event(
+        `∞ Amarrações: ${counts.red}🔴 ${counts.yellow}🟡 ${counts.green}🟢 · ` +
+          `${result.filesScanned} arquivo(s) analisado(s)`,
+      );
+    })
+    .catch((error: unknown) => {
+      logger.warn(
+        `Detector de amarrações: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
 
   const displayHost =
     host === '0.0.0.0' || host === '::' || host === '::1' || host === '127.0.0.1'
@@ -269,7 +342,18 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
   logger.blank();
   logger.hint('Pressione Ctrl+C para encerrar.');
 
-  return { app, opened, url, host, port, watcher, recorder, aiStatus, close };
+  return {
+    app,
+    opened,
+    url,
+    host,
+    port,
+    watcher,
+    recorder,
+    aiStatus,
+    bindingsScanner,
+    close,
+  };
 }
 
 /** Executa o comando e mantém o processo vivo com shutdown gracioso. */

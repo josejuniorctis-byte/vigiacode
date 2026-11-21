@@ -4,8 +4,8 @@
 
 O CodeAnchor acompanha o seu projeto enquanto o código evolui: registra cada mudança com o diff, resume o que aconteceu e, nas próximas etapas, vai detectar **amarrações pendentes** entre front-end, back-end e banco.
 
-> **Status: Etapa 2.1 — O Vigia + Multi-provedor de IA.**
-> O `codeanchor start` observa o projeto, captura diffs do Git, grava eventos no SQLite, gera resumos em português e transmite tudo por SSE. A IA pode vir de OpenAI, Anthropic, Gemini, qualquer API OpenAI-compatible ou Ollama. O dashboard completo e o detector de amarrações ficam para as próximas etapas.
+> **Status: Etapa 4 — Detector de Amarrações.**
+> O `codeanchor start` serve um dashboard local em `http://localhost:4317` com linha do tempo em tempo real, agenda por dia, ranking de arquivos, configurações, status da IA e o **mapa de amarrações entre front-end, back-end e banco** (🔴/🟡/🟢), atualizado pelo vigia.
 
 ---
 
@@ -14,15 +14,16 @@ O CodeAnchor acompanha o seu projeto enquanto o código evolui: registra cada mu
 - Monorepo com **pnpm workspaces** (`packages/cli` e `packages/web`).
 - CLI `codeanchor` em TypeScript strict/ESM com **Commander**.
 - Banco local **SQLite** (better-sqlite3) com **Drizzle ORM** e migrations via **drizzle-kit**.
-- Servidor **Fastify** em `localhost:4317` com health check, projeto, eventos, SSE e status da IA.
+- Servidor **Fastify** em `localhost:4317` com health check, projeto, eventos, snapshots, estatísticas, arquivos, SSE e status/teste da IA.
 - **Vigia de arquivos** com chokidar: ignores do config + `.gitignore`, debounce e captura de `add`/`change`/`unlink`.
 - **Diffs do Git** via simple-git, incluindo arquivos novos não rastreados, com truncagem configurável e snapshots por commit.
 - **Multi-provedor de IA**: `openai`, `anthropic`, `gemini`, `openai-compatible` (OpenRouter, Groq, DeepSeek, LM Studio…), `ollama` e o heurístico `none`, com fila assíncrona e fallback em cadeia.
-- Comandos `codeanchor init`, `start`, `log`, `ai test` e `ai use`, com mensagens em português.
-- Esqueleto web em **React + Vite + Tailwind CSS** com a página “CodeAnchor rodando”.
-- ESLint + Prettier + 84 testes com **Vitest**.
+- **Detector de amarrações** (Etapa 4): extractors genéricos para React/Vue/Svelte, Express/Fastify/Nest/Next, Spring, FastAPI, Drizzle, Prisma, TypeORM, JPA e migrations SQL; regras R1–R10, matriz entidade × camadas, scan incremental pelo vigia, cache por hash e explicação com IA.
+- **Dashboard em React 19 + Vite 7 + Tailwind 4** com tema claro/escuro, linha do tempo, agenda de evolução, arquivos, tela de **Amarrações** com SSE e configurações.
+- Comandos `codeanchor init`, `start`, `log`, `ai test`, `ai use` e `bindings scan/list/matrix`, com mensagens em português.
+- ESLint + Prettier + **168 testes** (152 no CLI + 16 no web) com **Vitest** e **Testing Library**.
 
-**Ainda não implementado (proposital):** detector de amarrações (Etapa 3), dashboard completo (Etapa 5) e relatórios de evolução (Etapa 6).
+**Ainda não implementado (proposital):** relatórios de evolução e snapshots de arquitetura (Etapa 6).
 
 ---
 
@@ -114,19 +115,211 @@ O prompt pede um resumo curto em português com: o que mudou, a camada afetada e
 
 ---
 
+## Dashboard — Agenda de Evolução
+
+`codeanchor start` serve o dashboard em **http://localhost:4317**. A interface é local, em português e funciona offline (exceto as APIs de IA, quando configuradas).
+
+![Dashboard do CodeAnchor — linha do tempo](docs/dashboard.png)
+
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│ ⚓ projeto · branch · commit     API online · ao vivo · IA · tema  │
+├──────────────┬───────────────────────────────────────────────────────┤
+│ Linha do     │  Linha do tempo                                       │
+│ tempo        │  ┌───────────────────────────────────────────────┐    │
+│ Agenda       │  │ há 2 min · 3 arquivos · +7 −0                 │    │
+│ Arquivos     │  │ [frontend] [backend] [banco]                  │    │
+│ Amarrações   │  │ resumo da IA…                                 │    │
+│ Configurações│  └───────────────────────────────────────────────┘    │
+└──────────────┴───────────────────────────────────────────────────────┘
+```
+
+- **Linha do tempo**: lotes agrupados por `batch_id`, horário relativo, badges de camada, `+linhas/−linhas`, resumo da IA e skeleton “gerando resumo…” que é preenchido pelo SSE. Filtros por camada, texto e período, scroll infinito com `?before` e painel lateral com diff colorido, números de linha e aviso de truncagem.
+- **Agenda de Evolução**: visão por dia com quantidade de lotes/arquivos, camadas mais mexidas, lotes do dia e marcadores dos snapshots (hashes curtos).
+- **Arquivos**: ranking dos mais alterados, camada, último resumo e histórico completo de cada arquivo.
+- **Amarrações**: cards de 🔴/🟡/🟢, % de saúde, matriz entidade × camadas, gráfico de evolução, lista filtrável com referências clicáveis, “Explicar com IA” e “Aceitar como falso positivo”, tudo com SSE e badge de 🔴 na navegação.
+- **Configurações**: config atual somente leitura, provider/modelo, presença da chave (nunca a chave) e botão **Testar IA** (`POST /api/ai/test`).
+- Tema escuro por padrão, alternância claro/escuro persistida em `localStorage`.
+- SSE com reconexão automática e backoff exponencial; indicadores de API e “ao vivo” no cabeçalho.
+
+![Painel de diff com cores e números de linha](docs/dashboard-diff.png)
+
+### Desenvolvimento do front-end
+
+```bash
+pnpm dev          # CLI em watch + Vite em http://localhost:5173 (proxy /api → 4317)
+pnpm build        # gera packages/web/dist, servido pelo codeanchor start
+```
+
+Rotas da interface: `/` (linha do tempo), `/agenda`, `/files`, `/bindings`, `/settings`.
+
+---
+
+## Detector de Amarrações
+
+O detector cruza **front-end, back-end e banco** e transforma cada campo/entidade/rota num estado:
+
+- 🔴 **vermelho**: falta amarrar (campo/chamada sem contraparte);
+- 🟡 **amarelo**: parcial, tipo divergente, mock/localStorage ou regra de arquitetura;
+- 🟢 **verde**: front, back e banco presentes e consistentes.
+
+Ele é **genérico por design**: não assume uma stack única. Os extractors combinam a TypeScript compiler API (TS/JS), regex robusta (Java, Python, SQL, Prisma) e heurísticas de caminho para reconhecer React/Vue/Svelte, Express/Fastify/Nest/Next, Spring, FastAPI, Drizzle, Prisma, TypeORM, JPA e migrations Flyway/Liquibase.
+
+### Arquitetura (`packages/cli/src/bindings/`)
+
+```text
+src/bindings/
+├─ extractors/
+│  ├─ frontend.ts   tipos/interfaces, forms (name/register/v-model), fetch/axios/ky,
+│  │                rotas/páginas, payloads, mocks e localStorage
+│  ├─ backend.ts    Express/Fastify/Nest/Next, Spring, FastAPI, DTOs TS/zod/Java/pydantic
+│  ├─ database.ts   Drizzle, Prisma, TypeORM, JPA, CREATE/ALTER/DROP TABLE
+│  ├─ common.ts     normalização de caminhos, rotas e nomes
+│  └─ index.ts      registry dos extractors
+├─ names.ts         camel/snake/Pascal, plurais, sufixos Id/Dto/Entity/Page, sinônimos PT/EN
+├─ project-map.ts   mapa normalizado do projeto + migrations separadas
+├─ matcher.ts       fase determinística + fase semântica (heurística e LLM opcional, cache por hash)
+├─ rules.ts         R1–R10 + GREEN
+├─ matrix.ts        matriz entidade × front × back × banco
+├─ scanner.ts       scan completo/incremental, cache por hash, upsert/resolução
+└─ explain.ts       explicação em português + sugestão de código (IA ou heurística)
+```
+
+O scan é **serializado** para evitar corrida entre `start`, vigia e API. Arquivos são cacheados em `binding_file_cache` pelo SHA-1 do conteúdo: num scan incremental só os arquivos do lote são reparseados, e as amarrações são recalculadas sobre o mapa em cache.
+
+### Regras
+
+| Regra   | Padrão       | O que detecta                                                                                           |
+| ------- | ------------ | ------------------------------------------------------------------------------------------------------- |
+| **R1**  | 🔴 ligada    | Campo usado no front (tipo, formulário ou payload) sem campo no DTO/rota do back-end.                   |
+| **R2**  | 🔴 ligada    | Campo do DTO sem coluna na entidade/schema. Vira 🟡 quando existe mas o tipo diverge (string × number). |
+| **R3**  | 🟡 ligada    | Coluna no schema/entidade sem migration que a crie — e o inverso (migration sem schema).                |
+| **R4**  | 🔴 ligada    | Chamada do front para rota inexistente no back (método + path com params normalizados).                 |
+| **R5**  | 🟡 ligada    | Endpoint do back sem nenhum consumidor no front.                                                        |
+| **R6**  | 🟡 ligada    | Entidade com API mas sem tela, ou tela que só usa mock/localStorage (“só local”).                       |
+| **R7**  | 🔴 ligada    | Componente/rota referenciado sem definição ou import relativo quebrado.                                 |
+| **R8**  | 🟡 ligada    | “Existe em outro lugar, falta amarrar”: nome parecido entre módulos sem ligação determinística.         |
+| **R9**  | ⚪ desligada | Valor monetário como float/double/number (prefira decimal ou centavos inteiros).                        |
+| **R10** | ⚪ desligada | Regras de arquitetura: controller acessando repository/DAO direto e imports cruzados entre módulos.     |
+| GREEN   | —            | Campo presente e consistente em front, back e banco.                                                    |
+
+### Configurar, desligar e aceitar falsos positivos
+
+Tudo em `.codeanchor/config.json`, na chave `bindings` (configs antigos recebem os padrões automaticamente):
+
+```json
+"bindings": {
+  "rules": {
+    "R1": { "enabled": true, "severity": "red" },
+    "R2": { "enabled": true, "severity": "red" },
+    "R3": { "enabled": true, "severity": "yellow" },
+    "R4": { "enabled": true, "severity": "red" },
+    "R5": { "enabled": true, "severity": "yellow" },
+    "R6": { "enabled": true, "severity": "yellow" },
+    "R7": { "enabled": true, "severity": "red" },
+    "R8": { "enabled": true, "severity": "yellow" },
+    "R9": { "enabled": false, "severity": "yellow" },
+    "R10": { "enabled": false, "severity": "yellow" }
+  },
+  "ignore": ["src/generated/**", "**/*.stories.tsx"],
+  "acceptedFalsePositives": ["R2:user:nickname", "R3:audit_log:created_at"],
+  "semanticMatching": true
+}
+```
+
+- `rules.<R>.enabled=false` desliga a regra;
+- `rules.<R>.severity` troca 🔴 por 🟡 (ou vice-versa);
+- `ignore` aceita os mesmos padrões glob do vigia;
+- `acceptedFalsePositives` aceita `"R1:user:phone"` ou `{ "rule": "R1", "entity": "user", "field": "phone" }`;
+- `semanticMatching` liga a segunda fase do matcher (sinônimos e LLM opcional); com provider `none` só a heurística local roda, sem rede.
+
+### CLI
+
+```bash
+codeanchor bindings scan                 # scan completo; exit code 1 se houver 🔴
+codeanchor bindings scan --fail-on red   # explícito (padrão)
+codeanchor bindings scan --fail-on yellow
+codeanchor bindings scan --fail-on none  # nunca falha (relatórios)
+codeanchor bindings list --status red --layer backend
+codeanchor bindings list --rule R3 --resolved
+codeanchor bindings matrix               # entidade × front × back × banco
+```
+
+Saída colorida com regra, entidade/campo, referências `arquivo:linha`, sugestão e contagens. Perfeito para CI com `--fail-on`.
+
+### API local
+
+| Rota                             | Resposta                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `GET /api/bindings`              | lista ativa; `?status`, `?layer`, `?rule`, `?entity`, `?q`, `?includeResolved=true`, `?includeAccepted=true` |
+| `GET /api/bindings/:id`          | detalhe de uma amarração                                                                                     |
+| `GET /api/bindings/summary`      | contagens 🔴/🟡/🟢, % de saúde, resolvidas, aceitas e último scan                                            |
+| `GET /api/bindings/matrix`       | matriz entidade × front × back × banco                                                                       |
+| `GET /api/bindings/scans`        | histórico de scans (`?limit`) — usado no gráfico e na linha do tempo                                         |
+| `POST /api/bindings/scan`        | dispara um scan completo                                                                                     |
+| `POST /api/bindings/:id/accept`  | aceita como falso positivo (sai das contagens, fica no histórico)                                            |
+| `POST /api/bindings/:id/explain` | explica em português e sugere código; `provider none` responde heuristicamente                               |
+
+O SSE `/api/events/stream` ganhou o evento `bindings`, com novas, resolvidas e as contagens atuais. O dashboard se atualiza sem refresh.
+
+### Execução e histórico
+
+- **No `start`**: scan completo em background (o servidor sobe antes de terminar a análise).
+- **No vigia**: a cada lote, um scan incremental dos arquivos afetados; o resultado é publicado no SSE.
+- **Cache**: hash SHA-1 por arquivo em `binding_file_cache`; arquivos inalterados não são reparseados.
+- **Histórico**: uma pendência que desaparece recebe `resolved_at` (nunca é apagada). Se voltar, é reaberta.
+- **Falsos positivos**: `accepted=true` mantém a amarração no banco, fora das contagens e do histórico ativo.
+
+### Dashboard
+
+A tela **Amarrações** (`/bindings`) tem:
+
+- cards de 🔴/🟡/🟢 e **% de saúde**;
+- **matriz** entidade × front × back × banco com ✅ integrado, 🟡 parcial, ⬜ só local, ❌ faltando e ↗ falta amarrar;
+- **gráfico de evolução por scan** (barras empilhadas);
+- lista filtrável por status/camada/regra/entidade/texto, com referências clicáveis para `/files?path=…`, **Explicar com IA** e **Aceitar como falso positivo**;
+- badge de 🔴 na navegação lateral;
+- na **Linha do tempo**, cada lote mostra quantas amarrações criou/resolveu.
+
+### Migrations novas
+
+A `0002` (gerada pelo drizzle-kit) evolui `bindings` e cria as tabelas novas, **sem editar `0000_init.sql`/`0001_watcher.sql`**:
+
+- `bindings`: `rule_id`, `severity`, `message`, `front_ref`, `back_ref`, `db_ref`, `suggestion`, `first_seen_at`, `last_seen_at`, `resolved_at`, `accepted` + índices;
+- `binding_scans`: `id`, `project_id`, `started_at`, `finished_at`, `files_scanned`, `red_count`, `yellow_count`, `green_count`, `created_count`, `resolved_count`, `trigger` (`manual|watch|start`), `batch_id`, `matrix_json`, `error`;
+- `binding_file_cache`: cache de extração por arquivo/hash.
+
+### Fixtures e testes
+
+Em `packages/cli/test/fixtures/`:
+
+| Fixture                 | Stack                        | Quebras plantadas                                                     |
+| ----------------------- | ---------------------------- | --------------------------------------------------------------------- |
+| `react-fastify-drizzle` | React + Fastify + Drizzle    | R1, R2 (campo e tipo), R3 (2), R4, R5, R6, R7, R8 — e 4 campos verdes |
+| `react-spring-flyway`   | React + Spring Boot + Flyway | R1, R2 (campo e tipo), R3 (2), R4, R5, R8 — e 2 campos verdes         |
+| `next-prisma`           | Next.js + Prisma             | R1, R2, R3 (2), R4, R5, R6, R7 — e 4 campos verdes                    |
+
+```bash
+pnpm --filter codeanchor test
+```
+
+Os testes cobrem extractors, normalizador, matcher, R1–R8/R9/R10, scan incremental, resolução de pendências, cache, rotas da API, explicação e a tela Amarrações.
+
+---
+
 ## Stack
 
-| Camada    | Escolha                                                     |
-| --------- | ----------------------------------------------------------- |
-| Runtime   | Node.js 20+ (ESM)                                           |
-| Monorepo  | pnpm workspaces                                             |
-| CLI       | TypeScript strict, Commander                                |
-| API       | Fastify 5 + SSE                                             |
-| Watcher   | chokidar 4                                                  |
-| Git       | simple-git                                                  |
-| Banco     | SQLite (better-sqlite3) + Drizzle ORM + drizzle-kit         |
-| Web       | React 19 + Vite + Tailwind CSS 4                            |
-| Qualidade | ESLint 9 (flat config), Prettier, Vitest, TypeScript strict |
+| Camada    | Escolha                                                                      |
+| --------- | ---------------------------------------------------------------------------- |
+| Runtime   | Node.js 20+ (ESM)                                                            |
+| Monorepo  | pnpm workspaces                                                              |
+| CLI       | TypeScript strict, Commander                                                 |
+| API       | Fastify 5 + SSE                                                              |
+| Watcher   | chokidar 4                                                                   |
+| Git       | simple-git                                                                   |
+| Banco     | SQLite (better-sqlite3) + Drizzle ORM + drizzle-kit                          |
+| Web       | React 19 + Vite 7 + Tailwind 4 + React Router + TanStack Query               |
+| Qualidade | ESLint 9 (flat config), Prettier, Vitest, Testing Library, TypeScript strict |
 
 A camada de banco fica isolada em `packages/cli/src/db/` — apenas ela conhece o dialeto. Para suportar PostgreSQL no futuro, basta adicionar um schema/repositório equivalentes e trocar o client, sem mexer em comandos ou rotas.
 
@@ -143,19 +336,26 @@ codeanchor/
 ├─ packages/
 │  ├─ cli/
 │  │  ├─ package.json      name "codeanchor", bin "codeanchor" → dist/index.js
-│  │  ├─ drizzle/          migrations SQL (0000_init + 0001_watcher)
+│  │  ├─ drizzle/          migrations SQL (0000_init + 0001_watcher + 0002_bindings)
+│  │  ├─ test/fixtures/    React+Fastify+Drizzle, React+Spring+Flyway, Next+Prisma
 │  │  ├─ drizzle.config.ts
 │  │  └─ src/
 │  │     ├─ index.ts       entry do Commander
-│  │     ├─ config.ts      leitura/escrita do .codeanchor/config.json
-│  │     ├─ commands/      init.ts, start.ts, log.ts, ai.ts
-│  │     ├─ db/            schema.ts, client.ts, migrate.ts, repository.ts
+│  │     ├─ config.ts      leitura/escrita do .codeanchor/config.json (watch/llm/bindings)
+│  │     ├─ commands/      init.ts, start.ts, log.ts, ai.ts, bindings.ts
+│  │     ├─ db/            schema.ts, client.ts, migrate.ts, repository.ts, bindings-repository.ts
+│  │     ├─ bindings/      extractors, names, matcher, rules, scanner, matrix, explain
 │  │     ├─ watcher/       chokidar, debounce, ignores, layers, recorder
 │  │     ├─ git/           diffs (simple-git) e snapshots por commit
 │  │     ├─ ai/            summarizer, fila, status e providers/ (openai, anthropic, gemini, compatible, ollama)
 │  │     ├─ server/        Fastify + rotas + SSE + estático
 │  │     └─ utils/         logger e loader de .env
-│  └─ web/                 Vite + React + Tailwind (esqueleto)
+│  └─ web/
+│     ├─ src/pages/        Linha do tempo, Agenda, Arquivos, Amarrações (matriz/lista), Configurações
+│     ├─ src/components/   header, sidebar (badge 🔴), timeline, filtros, diff, drawer…
+│     ├─ src/hooks/        useEventStream (change/summary/bindings), useLiveEvents, tema e debounce
+│     ├─ src/api/          client fetch + hooks TanStack Query
+│     └─ src/test/         setup, mocks e fixtures (Testing Library)
 └─ README.md, LICENSE (MIT), .editorconfig, .gitignore
 ```
 
@@ -293,19 +493,58 @@ codeanchor ai use ollama --model llama3.2
 codeanchor ai use none
 ```
 
+### `codeanchor bindings scan`
+
+Analisa o projeto e atualiza as amarrações. Sai com código 1 quando encontra 🔴 (configurável com `--fail-on red|yellow|none`).
+
+```bash
+codeanchor bindings scan
+codeanchor bindings scan --fail-on yellow
+```
+
+### `codeanchor bindings list`
+
+Lista filtrável, com regra, entidade/campo, mensagem, referências e sugestão.
+
+```bash
+codeanchor bindings list --status red --layer backend
+codeanchor bindings list --rule R3 --resolved
+```
+
+### `codeanchor bindings matrix`
+
+Imprime a matriz entidade × front-end × back-end × banco do último scan.
+
+```bash
+codeanchor bindings matrix
+```
+
 ---
 
 ## API local
 
-| Rota                     | Resposta                                                                                                  |
-| ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `GET /api/health`        | `{ "status": "ok", "version": "0.1.0" }`                                                                  |
-| `GET /api/project`       | dados do projeto registrado                                                                               |
-| `GET /api/events`        | `{ "events": [...] }` — mais recentes primeiro; aceita `?limit` (1–200), `?before` (id ou ISO) e `?layer` |
-| `GET /api/events/:id`    | evento completo, incluindo `diff` e `diffTruncated`                                                       |
-| `GET /api/events/stream` | SSE com `event: change` (evento novo) e `event: summary` (resumo concluído)                               |
-| `GET /api/ai/status`     | provider, modelo, `keyPresent` (sem a chave) e último healthCheck                                         |
-| `GET /`                  | interface web (build) ou página de fallback                                                               |
+| Rota                             | Resposta                                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `GET /api/health`                | `{ "status": "ok", "version": "0.1.0" }`                                                         |
+| `GET /api/project`               | projeto registrado + branch/commit atuais                                                        |
+| `GET /api/events`                | `{ "events": [...] }` — `?limit` (1–200), `?before`, `?layer`, `?q` (texto), `?from`/`?to` (ISO) |
+| `GET /api/events/:id`            | evento completo, incluindo `diff` e `diffTruncated`                                              |
+| `GET /api/events/stream`         | SSE com `event: change`, `event: summary` e `event: bindings` (novas/resolvidas/contagens)       |
+| `GET /api/snapshots`             | commits registrados, mais recentes primeiro                                                      |
+| `GET /api/stats`                 | totais, eventos por dia/camada e arquivos mais alterados                                         |
+| `GET /api/files/events`          | histórico de um arquivo: `?path=src%2Fapi%2Fusers.ts&limit=&before=`                             |
+| `GET /api/config`                | configuração ativa (somente leitura, sem chaves)                                                 |
+| `GET /api/ai/status`             | provider, modelo, `keyPresent` (sem a chave) e último healthCheck                                |
+| `POST /api/ai/test`              | testa o provider configurado e devolve resposta/tempo ou erro explicado                          |
+| `GET /api/bindings`              | amarrações ativas com filtros (`status`, `layer`, `rule`, `entity`, `q`, resolvidas/aceitas)     |
+| `GET /api/bindings/:id`          | detalhe de uma amarração                                                                         |
+| `GET /api/bindings/summary`      | contagens, saúde, resolvidas/aceitas e último scan                                               |
+| `GET /api/bindings/matrix`       | matriz entidade × front × back × banco                                                           |
+| `GET /api/bindings/scans`        | histórico de scans                                                                               |
+| `POST /api/bindings/scan`        | roda um scan completo                                                                            |
+| `POST /api/bindings/:id/accept`  | aceita a amarração como falso positivo                                                           |
+| `POST /api/bindings/:id/explain` | explica e sugere código (IA ou heurística)                                                       |
+| `GET /`                          | dashboard (build) ou página de fallback                                                          |
 
 A listagem não inclui o diff completo (use `/api/events/:id`). Exemplo de paginação por cursor:
 
@@ -330,14 +569,16 @@ curl -N http://localhost:4317/api/events/stream
 
 Timestamps em **ISO 8601 (UTC)**, gravados como `TEXT`. Todas as tabelas filhas têm índice em `project_id`.
 
-| Tabela          | Colunas                                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `projects`      | `id`, `name`, `root_path`, `created_at`                                                                                                    |
-| `snapshots`     | `id`, `project_id`, `commit_hash`, `created_at`                                                                                            |
-| `change_events` | `id`, `project_id`, `file_path`, `change_type` (add/change/unlink), `diff`, `summary`, `batch_id`, `layer`, `diff_truncated`, `created_at` |
-| `bindings`      | `id`, `project_id`, `layer` (frontend/backend/database), `entity`, `field`, `status` (red/yellow/green), `detected_at`                     |
+| Tabela               | Colunas                                                                                                                                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `projects`           | `id`, `name`, `root_path`, `created_at`                                                                                                                                                                                 |
+| `snapshots`          | `id`, `project_id`, `commit_hash`, `created_at`                                                                                                                                                                         |
+| `change_events`      | `id`, `project_id`, `file_path`, `change_type` (add/change/unlink), `diff`, `summary`, `batch_id`, `layer`, `diff_truncated`, `created_at`                                                                              |
+| `bindings`           | `id`, `project_id`, `layer`, `entity`, `field`, `status`, `detected_at` + `rule_id`, `severity`, `message`, `front_ref`, `back_ref`, `db_ref`, `suggestion`, `first_seen_at`, `last_seen_at`, `resolved_at`, `accepted` |
+| `binding_scans`      | `id`, `project_id`, `started_at`, `finished_at`, `files_scanned`, `red_count`, `yellow_count`, `green_count`, `created_count`, `resolved_count`, `trigger`, `batch_id`, `matrix_json`, `error`                          |
+| `binding_file_cache` | `id`, `project_id`, `file_path`, `hash`, `layer`, `extractor`, `data`, `updated_at`                                                                                                                                     |
 
-A migration **`0001_watcher.sql`** adiciona `batch_id`, `layer` e `diff_truncated` em `change_events` (além dos índices por `layer` e `batch_id`) sem alterar a `0000_init.sql`.
+A migration **`0001_watcher.sql`** adiciona `batch_id`, `layer` e `diff_truncated` em `change_events`. A **`0002`** evolui `bindings` e cria `binding_scans`/`binding_file_cache`, sem alterar as migrations antigas.
 
 Migrations são geradas com:
 
@@ -369,6 +610,23 @@ Exemplo de `.codeanchor/config.json`:
     "temperature": 0.2,
     "fallback_providers": ["ollama"]
   },
+  "bindings": {
+    "rules": {
+      "R1": { "enabled": true, "severity": "red" },
+      "R2": { "enabled": true, "severity": "red" },
+      "R3": { "enabled": true, "severity": "yellow" },
+      "R4": { "enabled": true, "severity": "red" },
+      "R5": { "enabled": true, "severity": "yellow" },
+      "R6": { "enabled": true, "severity": "yellow" },
+      "R7": { "enabled": true, "severity": "red" },
+      "R8": { "enabled": true, "severity": "yellow" },
+      "R9": { "enabled": false, "severity": "yellow" },
+      "R10": { "enabled": false, "severity": "yellow" }
+    },
+    "ignore": [],
+    "acceptedFalsePositives": [],
+    "semanticMatching": true
+  },
   "server": { "host": "localhost", "port": 4317 },
   "database": { "dialect": "sqlite", "file": "codeanchor.db" }
 }
@@ -384,7 +642,7 @@ Configs criados nas Etapas 1 e 2 continuam funcionando: campos novos recebem os 
 | ------------------- | ------------------------------------------------- |
 | `pnpm dev`          | CLI em watch + Vite dev server (proxy para a API) |
 | `pnpm build`        | build do CLI (tsc) e do web (vite)                |
-| `pnpm test`         | testes do CLI com Vitest (84 testes)              |
+| `pnpm test`         | testes do CLI e do web com Vitest (168 testes)    |
 | `pnpm lint`         | ESLint em todo o monorepo                         |
 | `pnpm typecheck`    | TypeScript strict sem emitir                      |
 | `pnpm format`       | Prettier em todo o repositório                    |
@@ -394,15 +652,15 @@ Configs criados nas Etapas 1 e 2 continuam funcionando: campos novos recebem os 
 
 ## Roadmap — 6 etapas
 
-| Etapa | Nome                     | Entrega                                                                                       |
-| ----- | ------------------------ | --------------------------------------------------------------------------------------------- |
-| **1** | **Fundação & Estrutura** | **Monorepo, CLI, config, banco SQLite/Drizzle, API Fastify, esqueleto web**                   |
-| **2** | **O Vigia**              | **Watcher + diff Git + resumos IA + SSE + `codeanchor log`**                                  |
-| 2.1   | Multi-provedor de IA     | OpenAI, Anthropic, Gemini, APIs OpenAI-compatible, Ollama, fallback em cadeia e `ai test/use` |
-| 3     | Detecção de amarrações   | heurísticas ligam front-end, back-end e banco por entidade/campo                              |
-| 4     | Motor de IA avançado     | sugestões contextuais, sumarização por lote e memória do projeto                              |
-| 5     | Dashboard                | timeline de eventos e mapa visual das amarrações                                              |
-| 6     | Snapshots & Relatórios   | evolução da arquitetura ao longo do tempo, pronta para CI                                     |
+| Etapa | Nome                       | Entrega                                                                                       |
+| ----- | -------------------------- | --------------------------------------------------------------------------------------------- |
+| **1** | **Fundação & Estrutura**   | **Monorepo, CLI, config, banco SQLite/Drizzle, API Fastify, esqueleto web**                   |
+| **2** | **O Vigia**                | **Watcher + diff Git + resumos IA + SSE + `codeanchor log`**                                  |
+| 2.1   | Multi-provedor de IA       | OpenAI, Anthropic, Gemini, APIs OpenAI-compatible, Ollama, fallback em cadeia e `ai test/use` |
+| **3** | **Dashboard Visual**       | **Linha do tempo SSE, Agenda de Evolução, arquivos, configurações, tema e diff drawer**       |
+| **4** | **Detector de Amarrações** | **Extractors multi-stack, regras R1–R10, matriz, scan incremental, SSE, CLI, dashboard e IA** |
+| 5     | IA avançada                | sugestões contextuais, resumos por lote e memória do projeto                                  |
+| 6     | Snapshots & Relatórios     | evolução da arquitetura ao longo do tempo, pronta para CI                                     |
 
 ---
 

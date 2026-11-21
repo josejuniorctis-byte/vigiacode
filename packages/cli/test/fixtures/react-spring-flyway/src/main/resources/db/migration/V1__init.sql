@@ -1,0 +1,6 @@
+CREATE TABLE products (
+  id BIGINT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  price DECIMAL(10, 2) NOT NULL,
+  legacy VARCHAR(50)
+);

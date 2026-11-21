@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import { Command, InvalidArgumentError } from 'commander';
 import { runAiTest, runAiUse } from './commands/ai.js';
+import {
+  runBindingsList,
+  runBindingsMatrix,
+  runBindingsScan,
+  type FailOn,
+} from './commands/bindings.js';
 import { runInit } from './commands/init.js';
 import {
   canPrompt,
@@ -10,8 +16,20 @@ import {
 } from './commands/init-prompts.js';
 import { runLog } from './commands/log.js';
 import { runStartCommand } from './commands/start.js';
-import { isLlmProvider, LLM_PROVIDERS, providerDefaults, type LlmProvider } from './config.js';
-import { CHANGE_EVENT_LAYERS, isChangeEventLayer, type ChangeEventLayer } from './db/index.js';
+import {
+  isBindingRuleId,
+  isLlmProvider,
+  LLM_PROVIDERS,
+  providerDefaults,
+  type LlmProvider,
+} from './config.js';
+import {
+  CHANGE_EVENT_LAYERS,
+  isChangeEventLayer,
+  type BindingLayer,
+  type BindingStatus,
+  type ChangeEventLayer,
+} from './db/index.js';
 import { logger } from './utils/logger.js';
 import { VERSION } from './version.js';
 
@@ -42,6 +60,20 @@ interface LogCliOptions {
 interface AiUseCliOptions {
   model?: string;
   baseUrl?: string;
+}
+
+interface BindingsScanCliOptions {
+  failOn?: FailOn;
+}
+
+interface BindingsListCliOptions {
+  status?: BindingStatus;
+  layer?: BindingLayer;
+  rule?: string;
+  entity?: string;
+  q?: string;
+  resolved?: boolean;
+  limit?: number;
 }
 
 function parseProvider(value: string): LlmProvider {
@@ -89,6 +121,34 @@ function parseLayer(value: string): ChangeEventLayer {
     throw new InvalidArgumentError(
       `Camada inválida: "${value}". Use: ${CHANGE_EVENT_LAYERS.join(', ')}.`,
     );
+  }
+  return value;
+}
+
+function parseBindingStatus(value: string): BindingStatus {
+  if (value !== 'red' && value !== 'yellow' && value !== 'green') {
+    throw new InvalidArgumentError('Status inválido. Use: red, yellow ou green.');
+  }
+  return value;
+}
+
+function parseBindingLayer(value: string): BindingLayer {
+  if (value !== 'frontend' && value !== 'backend' && value !== 'database') {
+    throw new InvalidArgumentError('Camada inválida. Use: frontend, backend ou database.');
+  }
+  return value;
+}
+
+function parseBindingRule(value: string): string {
+  if (value !== 'GREEN' && !isBindingRuleId(value)) {
+    throw new InvalidArgumentError('Regra inválida. Use R1..R10 ou GREEN.');
+  }
+  return value;
+}
+
+function parseFailOn(value: string): FailOn {
+  if (value !== 'red' && value !== 'yellow' && value !== 'none') {
+    throw new InvalidArgumentError('--fail-on aceita: red, yellow ou none.');
   }
   return value;
 }
@@ -228,6 +288,53 @@ export function createProgram(): Command {
       });
     });
 
+  const bindings = program
+    .command('bindings')
+    .description('Detecta e lista amarrações pendentes entre front-end, back-end e banco');
+
+  bindings
+    .command('scan')
+    .description('Analisa o projeto e atualiza as amarrações (exit code 1 quando há 🔴)')
+    .option(
+      '--fail-on <nivel>',
+      'falha o comando com red (padrão), yellow ou none',
+      parseFailOn,
+      'red',
+    )
+    .action(async (options: BindingsScanCliOptions) => {
+      await runBindingsScan({ cwd: process.cwd(), failOn: options.failOn });
+    });
+
+  bindings
+    .command('list')
+    .description('Lista as amarrações detectadas')
+    .option('--status <status>', 'filtra por red, yellow ou green', parseBindingStatus)
+    .option('--layer <camada>', 'filtra por frontend, backend ou database', parseBindingLayer)
+    .option('--rule <regra>', 'filtra por R1..R10 ou GREEN', parseBindingRule)
+    .option('--entity <entidade>', 'filtra pela entidade normalizada')
+    .option('-q, --q <texto>', 'busca em entidade, campo e mensagem')
+    .option('--resolved', 'inclui amarrações já resolvidas')
+    .option('-n, --limit <n>', 'quantidade (padrão: 50)', parsePositiveInt('limit'))
+    .action(async (options: BindingsListCliOptions) => {
+      await runBindingsList({
+        cwd: process.cwd(),
+        status: options.status,
+        layer: options.layer,
+        rule: options.rule,
+        entity: options.entity,
+        search: options.q,
+        resolved: options.resolved,
+        limit: options.limit,
+      });
+    });
+
+  bindings
+    .command('matrix')
+    .description('Mostra a matriz entidade × front-end × back-end × banco')
+    .action(async () => {
+      await runBindingsMatrix({ cwd: process.cwd() });
+    });
+
   const ai = program.command('ai').description('Configura e testa o provider de IA');
 
   ai.command('test')
@@ -264,6 +371,10 @@ Exemplos:
   codeanchor start --no-watch          sobe só a API, sem observar arquivos
   codeanchor log                       mostra os últimos eventos e resumos
   codeanchor log --layer backend -n 5  filtra os eventos de back-end
+  codeanchor bindings scan             detecta amarrações e falha em CI se houver 🔴
+  codeanchor bindings scan --fail-on yellow
+  codeanchor bindings list --status red --layer frontend
+  codeanchor bindings matrix           matriz entidade × front × back × banco
 `,
   );
 

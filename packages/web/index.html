@@ -6,9 +6,17 @@
     <meta name="theme-color" content="#070b12" />
     <meta
       name="description"
-      content="CodeAnchor — AI Dev Companion e rastreador de arquitetura para projetos desenvolvidos com agentes de IA."
+      content="CodeAnchor — Agenda de Evolução e rastreador de arquitetura para projetos desenvolvidos com agentes de IA."
     />
-    <title>CodeAnchor</title>
+    <title>CodeAnchor · Agenda de Evolução</title>
+    <script>
+      try {
+        var stored = localStorage.getItem('codeanchor-theme');
+        document.documentElement.classList.add(stored === 'light' ? 'light' : 'dark');
+      } catch {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

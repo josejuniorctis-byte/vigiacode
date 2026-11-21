@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, like, lt, lte, or, type SQL } from 'drizzle-orm';
 import type { CodeAnchorDatabase } from './client.js';
 import {
   changeEvents,
@@ -111,6 +111,14 @@ export interface ListChangeEventsOptions {
   /** Cursor: id de um evento ou timestamp ISO. */
   before?: string | undefined;
   layer?: ChangeEventLayer | undefined;
+  /** Filtra por caminho exato (histórico de arquivo). */
+  filePath?: string | undefined;
+  /** Busca em file_path ou summary. */
+  search?: string | undefined;
+  /** Início do período (ISO). */
+  from?: string | undefined;
+  /** Fim do período (ISO). */
+  to?: string | undefined;
 }
 
 export interface EventCursor {
@@ -132,6 +140,20 @@ export function listChangeEvents(
 
   if (options.layer) {
     filters.push(eq(changeEvents.layer, options.layer));
+  }
+  if (options.filePath) {
+    filters.push(eq(changeEvents.filePath, options.filePath));
+  }
+  if (options.search) {
+    const term = `%${options.search}%`;
+    const searchFilter = or(like(changeEvents.filePath, term), like(changeEvents.summary, term));
+    if (searchFilter) filters.push(searchFilter);
+  }
+  if (options.from) {
+    filters.push(gte(changeEvents.createdAt, options.from));
+  }
+  if (options.to) {
+    filters.push(lte(changeEvents.createdAt, options.to));
   }
 
   const cursor = resolveEventCursor(db, projectId, options.before);
@@ -159,6 +181,142 @@ export function listRecentChangeEvents(
   limit = 50,
 ): ChangeEvent[] {
   return listChangeEvents(db, projectId, { limit });
+}
+
+/** Histórico de um arquivo específico. */
+export function listFileEvents(
+  db: CodeAnchorDatabase,
+  projectId: string,
+  filePath: string,
+  options: Omit<ListChangeEventsOptions, 'filePath'> = {},
+): ChangeEvent[] {
+  return listChangeEvents(db, projectId, { ...options, filePath });
+}
+
+export function listSnapshots(db: CodeAnchorDatabase, projectId: string, limit = 100): Snapshot[] {
+  return db
+    .select()
+    .from(snapshots)
+    .where(eq(snapshots.projectId, projectId))
+    .orderBy(desc(snapshots.createdAt))
+    .limit(clampLimit(limit, 100))
+    .all();
+}
+
+export interface StatsDay {
+  date: string;
+  events: number;
+  files: number;
+  batches: number;
+  layers: Partial<Record<ChangeEventLayer, number>>;
+}
+
+export interface StatsFile {
+  filePath: string;
+  layer: ChangeEventLayer;
+  events: number;
+  lastSummary: string | null;
+  lastChangedAt: string;
+}
+
+export interface ProjectStats {
+  totalEvents: number;
+  totalBatches: number;
+  totalFiles: number;
+  byDay: StatsDay[];
+  byLayer: Array<{ layer: ChangeEventLayer; events: number }>;
+  topFiles: StatsFile[];
+}
+
+/**
+ * Estatísticas agregadas do projeto. Usa os eventos mais recentes (limite de
+ * segurança) para manter a resposta rápida em bases locais.
+ */
+export function getProjectStats(
+  db: CodeAnchorDatabase,
+  projectId: string,
+  maxEvents = 5000,
+): ProjectStats {
+  const rows = db
+    .select({
+      id: changeEvents.id,
+      batchId: changeEvents.batchId,
+      filePath: changeEvents.filePath,
+      layer: changeEvents.layer,
+      summary: changeEvents.summary,
+      createdAt: changeEvents.createdAt,
+    })
+    .from(changeEvents)
+    .where(eq(changeEvents.projectId, projectId))
+    .orderBy(desc(changeEvents.createdAt), desc(changeEvents.id))
+    .limit(Math.max(1, Math.min(maxEvents, 20_000)))
+    .all();
+
+  const batches = new Set<string>();
+  const files = new Set<string>();
+  const days = new Map<
+    string,
+    {
+      files: Set<string>;
+      batches: Set<string>;
+      events: number;
+      layers: Map<ChangeEventLayer, number>;
+    }
+  >();
+  const layers = new Map<ChangeEventLayer, number>();
+  const topFiles = new Map<string, StatsFile>();
+
+  for (const row of rows) {
+    if (row.batchId) batches.add(row.batchId);
+    files.add(row.filePath);
+    layers.set(row.layer, (layers.get(row.layer) ?? 0) + 1);
+
+    const date = row.createdAt.slice(0, 10);
+    const day = days.get(date) ?? {
+      files: new Set<string>(),
+      batches: new Set<string>(),
+      events: 0,
+      layers: new Map<ChangeEventLayer, number>(),
+    };
+    day.events += 1;
+    day.files.add(row.filePath);
+    if (row.batchId) day.batches.add(row.batchId);
+    day.layers.set(row.layer, (day.layers.get(row.layer) ?? 0) + 1);
+    days.set(date, day);
+
+    const file = topFiles.get(row.filePath);
+    if (file) {
+      file.events += 1;
+      if (!file.lastSummary && row.summary) file.lastSummary = row.summary;
+    } else {
+      topFiles.set(row.filePath, {
+        filePath: row.filePath,
+        layer: row.layer,
+        events: 1,
+        lastSummary: row.summary,
+        lastChangedAt: row.createdAt,
+      });
+    }
+  }
+
+  return {
+    totalEvents: rows.length,
+    totalBatches: batches.size,
+    totalFiles: files.size,
+    byDay: [...days.entries()]
+      .map(([date, day]) => ({
+        date,
+        events: day.events,
+        files: day.files.size,
+        batches: day.batches.size,
+        layers: Object.fromEntries(day.layers) as Partial<Record<ChangeEventLayer, number>>,
+      }))
+      .sort((left, right) => right.date.localeCompare(left.date)),
+    byLayer: [...layers.entries()]
+      .map(([layer, events]) => ({ layer, events }))
+      .sort((left, right) => right.events - left.events),
+    topFiles: [...topFiles.values()].sort((left, right) => right.events - left.events).slice(0, 20),
+  };
 }
 
 /** Resolve o cursor de paginação; retorna null para cursor inválido. */

@@ -21,6 +21,71 @@ export const DEFAULT_AI_TIMEOUT_MS = 15_000;
 export const DEFAULT_MAX_TOKENS = 512;
 export const DEFAULT_TEMPERATURE = 0.2;
 
+/** Regras do detector de amarrações (Etapa 4). */
+export const BINDING_RULE_IDS = [
+  'R1',
+  'R2',
+  'R3',
+  'R4',
+  'R5',
+  'R6',
+  'R7',
+  'R8',
+  'R9',
+  'R10',
+] as const;
+export type BindingRuleId = (typeof BINDING_RULE_IDS)[number];
+export type BindingRuleSeverity = 'red' | 'yellow';
+
+export interface BindingRuleConfig {
+  enabled: boolean;
+  severity: BindingRuleSeverity;
+}
+
+export interface BindingsConfig {
+  rules: Record<BindingRuleId, BindingRuleConfig>;
+  /** Padrões extras ignorados pelo detector (além de watch.ignore e .gitignore). */
+  ignore: string[];
+  /** Falsos positivos aceitos: "R1:user:phone" ou { rule, entity, field }. */
+  acceptedFalsePositives: string[];
+  /** Segunda fase do matcher (sinônimos heurísticos + LLM quando configurado). */
+  semanticMatching: boolean;
+}
+
+export const DEFAULT_BINDINGS_RULES: Record<BindingRuleId, BindingRuleConfig> = {
+  R1: { enabled: true, severity: 'red' },
+  R2: { enabled: true, severity: 'red' },
+  R3: { enabled: true, severity: 'yellow' },
+  R4: { enabled: true, severity: 'red' },
+  R5: { enabled: true, severity: 'yellow' },
+  R6: { enabled: true, severity: 'yellow' },
+  R7: { enabled: true, severity: 'red' },
+  R8: { enabled: true, severity: 'yellow' },
+  R9: { enabled: false, severity: 'yellow' },
+  R10: { enabled: false, severity: 'yellow' },
+};
+
+export const BINDING_SCAN_TRIGGERS = ['manual', 'watch', 'start'] as const;
+export type BindingScanTrigger = (typeof BINDING_SCAN_TRIGGERS)[number];
+
+export function isBindingRuleId(value: string): value is BindingRuleId {
+  return (BINDING_RULE_IDS as readonly string[]).includes(value);
+}
+
+/** Cópia profunda dos padrões para cada config. */
+export function createDefaultBindingsConfig(): BindingsConfig {
+  const rules = {} as Record<BindingRuleId, BindingRuleConfig>;
+  for (const id of BINDING_RULE_IDS) {
+    rules[id] = { ...DEFAULT_BINDINGS_RULES[id] };
+  }
+  return {
+    rules,
+    ignore: [],
+    acceptedFalsePositives: [],
+    semanticMatching: true,
+  };
+}
+
 export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-haiku-latest';
@@ -136,6 +201,7 @@ export interface CodeAnchorConfig {
   watch: WatchConfig;
   git: GitConfig;
   llm: LlmConfig;
+  bindings: BindingsConfig;
   server: ServerConfig;
   database: DatabaseConfig;
 }
@@ -268,6 +334,7 @@ export function createDefaultConfig(input: CreateConfigInput): CodeAnchorConfig 
       temperature: normalizeTemperature(input.temperature),
       fallbackProviders: input.fallbackProviders ?? [],
     },
+    bindings: createDefaultBindingsConfig(),
     server: {
       host: DEFAULT_HOST,
       port: DEFAULT_PORT,
@@ -305,6 +372,7 @@ export function writeConfig(projectRoot: string, config: CodeAnchorConfig): stri
       temperature: config.llm.temperature ?? DEFAULT_TEMPERATURE,
       fallback_providers: config.llm.fallbackProviders ?? [],
     },
+    bindings: config.bindings,
     server: config.server,
     database: config.database,
   };
@@ -345,6 +413,7 @@ export function readConfig(projectRoot: string): CodeAnchorConfig {
   const watch = (data.watch ?? {}) as Record<string, unknown>;
   const git = (data.git ?? {}) as Record<string, unknown>;
   const llm = (data.llm ?? {}) as Record<string, unknown>;
+  const bindings = (data.bindings ?? {}) as Record<string, unknown>;
   const server = (data.server ?? {}) as Record<string, unknown>;
   const database = (data.database ?? {}) as Record<string, unknown>;
 
@@ -394,6 +463,7 @@ export function readConfig(projectRoot: string): CodeAnchorConfig {
       temperature: normalizeTemperature(llm.temperature),
       fallbackProviders: parseFallbackProviders(llm.fallback_providers ?? llm.fallbackProviders),
     },
+    bindings: parseBindingsConfig(bindings),
     server: {
       host:
         typeof server.host === 'string' && server.host.length > 0
@@ -428,6 +498,60 @@ export function isOpenAiBaseUrl(baseUrl: string): boolean {
   } catch {
     return baseUrl.trim().toLowerCase().startsWith('https://api.openai.com');
   }
+}
+
+/** Lê bindings do config, aplicando padrões e aceitando falsos positivos em objeto. */
+export function parseBindingsConfig(value: Record<string, unknown>): BindingsConfig {
+  const defaults = createDefaultBindingsConfig();
+  const rawRules = (value.rules ?? {}) as Record<string, unknown>;
+  const rules = {} as Record<BindingRuleId, BindingRuleConfig>;
+
+  for (const id of BINDING_RULE_IDS) {
+    const raw = rawRules[id] as Record<string, unknown> | undefined;
+    rules[id] = {
+      enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : defaults.rules[id].enabled,
+      severity:
+        raw?.severity === 'red' || raw?.severity === 'yellow'
+          ? raw.severity
+          : defaults.rules[id].severity,
+    };
+  }
+
+  const acceptedRaw = value.acceptedFalsePositives ?? value.accepted_false_positives;
+  const acceptedFalsePositives: string[] = [];
+  if (Array.isArray(acceptedRaw)) {
+    for (const item of acceptedRaw) {
+      const normalized = normalizeFalsePositive(item);
+      if (normalized) acceptedFalsePositives.push(normalized);
+    }
+  }
+
+  return {
+    rules,
+    ignore: stringArray(value.ignore, defaults.ignore),
+    acceptedFalsePositives,
+    semanticMatching:
+      typeof value.semanticMatching === 'boolean'
+        ? value.semanticMatching
+        : typeof value.semantic_matching === 'boolean'
+          ? value.semantic_matching
+          : defaults.semanticMatching,
+  };
+}
+
+function normalizeFalsePositive(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (typeof value !== 'object' || value === null) return null;
+
+  const item = value as Record<string, unknown>;
+  const rule = typeof item.rule === 'string' ? item.rule : (item.ruleId ?? item.rule_id);
+  const entity = typeof item.entity === 'string' ? item.entity : '';
+  const field = typeof item.field === 'string' ? item.field : '';
+  if (typeof rule !== 'string' || !isBindingRuleId(rule) || entity.length === 0) return null;
+  return `${rule}:${entity}:${field}`;
 }
 
 export function parseFallbackProviders(value: unknown): LlmProvider[] {

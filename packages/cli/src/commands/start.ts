@@ -1,10 +1,17 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { createSummarizer } from '../ai/index.js';
 import {
-  CODEANCHOR_API_KEY_ENV,
+  createAiStatusTracker,
+  createSummarizer,
+  MissingApiKeyError,
+  requiresApiKey,
+  resolveApiKey,
+  type AiStatusTracker,
+} from '../ai/index.js';
+import {
   configExists,
+  effectiveModel,
   readConfig,
   resolveConfigPaths,
   type CodeAnchorConfig,
@@ -19,6 +26,7 @@ import {
 import { GitRepository, startHeadWatcher, syncSnapshot } from '../git/index.js';
 import { createServer, resolveWebDistPath } from '../server/index.js';
 import { EventHub } from '../server/hub.js';
+import { loadProjectEnv } from '../utils/env.js';
 import { logger } from '../utils/logger.js';
 import { VERSION } from '../version.js';
 import { ChangeRecorder, startWatcher, type WatcherHandle } from '../watcher/index.js';
@@ -40,6 +48,7 @@ export interface RunningServer {
   port: number;
   watcher: WatcherHandle | null;
   recorder: ChangeRecorder;
+  aiStatus: AiStatusTracker;
   close(): Promise<void>;
 }
 
@@ -52,6 +61,11 @@ export interface RunningServer {
 export async function runStart(options: StartOptions): Promise<RunningServer | null> {
   const projectRoot = path.resolve(options.cwd);
   const paths = resolveConfigPaths(projectRoot);
+
+  const envLoad = loadProjectEnv(projectRoot);
+  if (envLoad.loaded.length > 0) {
+    logger.detail(`.codeanchor/.env carregado (${envLoad.loaded.length} variável(is)).`);
+  }
 
   if (!configExists(projectRoot)) {
     logger.error('Este projeto ainda não foi inicializado.');
@@ -99,6 +113,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
 
   const hub = new EventHub();
   const summarizer = createSummarizer(config.llm);
+  const aiStatus = createAiStatusTracker(config.llm);
   const git = await GitRepository.open(projectRoot);
   let headHash: string | null = null;
 
@@ -113,8 +128,9 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
     logger.hint('Rode "git init" (e faça um commit) para capturar diffs nas próximas mudanças.');
   }
 
-  if (config.llm.provider === 'byok' && !process.env[CODEANCHOR_API_KEY_ENV]) {
-    logger.warn(`${CODEANCHOR_API_KEY_ENV} não definida; os resumos usarão o heurístico local.`);
+  const keyStatus = resolveApiKey(config.llm.provider);
+  if (requiresApiKey(config.llm.provider) && !keyStatus.present) {
+    logger.warn(new MissingApiKeyError(config.llm.provider, keyStatus.variables).message);
   }
 
   const recorder = new ChangeRecorder({
@@ -152,6 +168,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
     version: VERSION,
     webDistPath,
     hub,
+    aiStatus,
   });
 
   let watcher: WatcherHandle | null = null;
@@ -195,6 +212,9 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
     return null;
   }
 
+  // Health check inicial em background; o status fica disponível em /api/ai/status.
+  void aiStatus.refresh();
+
   if (options.watch !== false) {
     try {
       watcher = await startWatcher({
@@ -223,6 +243,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
       : host;
   const url = `http://${displayHost}:${port}`;
 
+  const aiModel = effectiveModel(config.llm);
   logger.intro('CodeAnchor iniciado');
   logger.detail(`Projeto: ${project.name}`);
   logger.detail(`API:     ${url}/api/health`);
@@ -234,7 +255,9 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
     `IA:      ${config.llm.provider}${
       config.llm.provider === 'none'
         ? ' (resumo heurístico local)'
-        : ` · ${config.llm.model ?? 'modelo padrão'}`
+        : aiModel
+          ? ` · ${aiModel}`
+          : ' · modelo não definido'
     }`,
   );
   logger.detail(`Git:     ${headHash ? headHash.slice(0, 7) : 'não detectado (eventos sem diff)'}`);
@@ -246,7 +269,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
   logger.blank();
   logger.hint('Pressione Ctrl+C para encerrar.');
 
-  return { app, opened, url, host, port, watcher, recorder, close };
+  return { app, opened, url, host, port, watcher, recorder, aiStatus, close };
 }
 
 /** Executa o comando e mantém o processo vivo com shutdown gracioso. */

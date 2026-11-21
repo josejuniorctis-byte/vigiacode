@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { AiStatusSnapshot, AiStatusTracker } from '../ai/status.js';
 import type { CodeAnchorDatabase } from '../db/client.js';
 import {
   CHANGE_EVENT_LAYERS,
@@ -26,7 +27,16 @@ export interface CreateServerOptions {
   logger?: boolean;
   /** Hub do SSE; se omitido, o servidor cria um hub vazio. */
   hub?: EventHub;
+  /** Status da IA para GET /api/ai/status. */
+  aiStatus?: AiStatusTracker;
 }
+
+const DEFAULT_AI_STATUS: AiStatusSnapshot = {
+  provider: 'none',
+  model: null,
+  keyPresent: true,
+  lastHealthCheck: null,
+};
 
 /** Raiz do pacote codeanchor (funciona a partir de src/ e de dist/). */
 export function packageRoot(): string {
@@ -113,6 +123,10 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     status: 'ok',
     version: options.version,
   }));
+
+  app.get('/api/ai/status', async () => {
+    return options.aiStatus?.snapshot() ?? { ...DEFAULT_AI_STATUS };
+  });
 
   app.get('/api/project', async (_request, reply) => {
     const project = requireProject();

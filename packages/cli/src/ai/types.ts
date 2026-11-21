@@ -1,11 +1,10 @@
 import type { LlmProvider } from '../config.js';
-import type { ChangeEventLayer, ChangeType } from '../db/schema.js';
 
 /** Mudança individual entregue ao resumo. */
 export interface SummaryChange {
   filePath: string;
-  changeType: ChangeType;
-  layer: ChangeEventLayer;
+  changeType: 'add' | 'change' | 'unlink';
+  layer: 'frontend' | 'backend' | 'database' | 'config' | 'other';
   diff: string;
 }
 
@@ -27,5 +26,7 @@ export interface SummarizerLogger {
 export interface SummarizerOptions {
   /** Injetável nos testes; padrão: fetch global do Node. */
   fetchImpl?: typeof fetch | undefined;
+  /** Injetável nos testes; padrão: process.env. */
+  env?: NodeJS.ProcessEnv | undefined;
   logger?: SummarizerLogger | undefined;
 }

@@ -97,10 +97,28 @@ describe('codeanchor init', () => {
   it('grava o provider de IA escolhido', async () => {
     const projectRoot = makeProjectDir();
 
-    const result = await runInit({ cwd: projectRoot, yes: true, provider: 'byok' });
+    const result = await runInit({ cwd: projectRoot, yes: true, provider: 'openai' });
 
-    expect(result.config?.llm.provider).toBe('byok');
-    expect(readConfig(projectRoot).llm.provider).toBe('byok');
+    expect(result.config?.llm.provider).toBe('openai');
+    expect(readConfig(projectRoot).llm.provider).toBe('openai');
+    expect(readConfig(projectRoot).llm.model).toBe('gpt-4o-mini');
+  });
+
+  it('exige base_url e modelo para openai-compatible', async () => {
+    const projectRoot = makeProjectDir();
+
+    await expect(
+      runInit({ cwd: projectRoot, yes: true, provider: 'openai-compatible' }),
+    ).rejects.toThrow(/base-url/);
+
+    await expect(
+      runInit({
+        cwd: projectRoot,
+        yes: true,
+        provider: 'openai-compatible',
+        baseUrl: 'https://openrouter.ai/api/v1',
+      }),
+    ).rejects.toThrow(/modelo/);
   });
 
   it('adiciona .codeanchor/ ao .gitignore existente com --yes', async () => {

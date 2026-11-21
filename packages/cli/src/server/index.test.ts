@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { AiStatusTracker } from '../ai/status.js';
 import {
   applyMigrations,
   findProjectByRootPath,
@@ -263,6 +264,86 @@ describe('eventos: paginação, filtro e detalhe', () => {
 
     const missing = await app.inject({ method: 'GET', url: '/api/events/nao-existe' });
     expect(missing.statusCode).toBe(404);
+  });
+});
+
+describe('GET /api/ai/status', () => {
+  it('expõe provider, modelo, presença da chave e último healthCheck sem vazar segredo', async () => {
+    const opened = openDatabase(':memory:');
+    applyMigrations(opened.db);
+    const project = registerProject(opened.db, {
+      name: 'projeto-ia',
+      rootPath: path.resolve('/tmp/projeto-ia'),
+    });
+    const tracker = new AiStatusTracker(
+      'openai',
+      {
+        name: 'openai',
+        complete: async () => 'ok',
+        healthCheck: async () => true,
+      },
+      'gpt-4o-mini',
+      true,
+    );
+    await tracker.refresh();
+
+    const app = await createServer({
+      db: opened.db,
+      project,
+      version: '1.2.3',
+      webDistPath: null,
+      aiStatus: tracker,
+    });
+
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/ai/status' });
+      const body = response.json() as {
+        provider: string;
+        model: string;
+        keyPresent: boolean;
+        lastHealthCheck: { ok: boolean; checkedAt: string } | null;
+      };
+
+      expect(response.statusCode).toBe(200);
+      expect(body.provider).toBe('openai');
+      expect(body.model).toBe('gpt-4o-mini');
+      expect(body.keyPresent).toBe(true);
+      expect(body.lastHealthCheck?.ok).toBe(true);
+      expect(Date.parse(body.lastHealthCheck?.checkedAt ?? '')).not.toBeNaN();
+      expect(body).not.toHaveProperty('key');
+      expect(body).not.toHaveProperty('apiKey');
+    } finally {
+      await app.close();
+      opened.close();
+    }
+  });
+
+  it('sem tracker devolve o status neutro (none)', async () => {
+    const opened = openDatabase(':memory:');
+    applyMigrations(opened.db);
+    const project = registerProject(opened.db, {
+      name: 'projeto-ia-padrao',
+      rootPath: path.resolve('/tmp/projeto-ia-padrao'),
+    });
+    const app = await createServer({
+      db: opened.db,
+      project,
+      version: '1.2.3',
+      webDistPath: null,
+    });
+
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/ai/status' });
+      expect(response.json()).toMatchObject({
+        provider: 'none',
+        model: null,
+        keyPresent: true,
+        lastHealthCheck: null,
+      });
+    } finally {
+      await app.close();
+      opened.close();
+    }
   });
 });
 

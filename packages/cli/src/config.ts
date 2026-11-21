@@ -5,6 +5,7 @@ import path from 'node:path';
 export const CONFIG_DIR_NAME = '.codeanchor';
 export const CONFIG_FILE_NAME = 'config.json';
 export const DATABASE_FILE_NAME = 'codeanchor.db';
+export const ENV_FILE_NAME = '.env';
 
 /** Porta padrão da API/interface local. */
 export const DEFAULT_PORT = 4317;
@@ -14,16 +15,31 @@ export const DEFAULT_HOST = 'localhost';
 export const DEFAULT_DEBOUNCE_MS = 1500;
 export const DEFAULT_MAX_FILE_SIZE_KB = 500;
 export const DEFAULT_MAX_DIFF_KB = 200;
-export const DEFAULT_AI_TIMEOUT_MS = 15_000;
 
-/** Modelos/endpoints padrão por provider (podem ser sobrescritos no config). */
-export const DEFAULT_BYOK_MODEL = 'gpt-4o-mini';
-export const DEFAULT_BYOK_BASE_URL = 'https://api.openai.com/v1';
+/** Padrões de IA (Etapa 2.1). */
+export const DEFAULT_AI_TIMEOUT_MS = 15_000;
+export const DEFAULT_MAX_TOKENS = 512;
+export const DEFAULT_TEMPERATURE = 0.2;
+
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-haiku-latest';
+export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
+export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com';
 export const DEFAULT_OLLAMA_MODEL = 'llama3.2';
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434';
 
-/** Nunca é gravada no config.json nem no banco. */
+/** Compatibilidade com configs/imports antigos da Etapa 2. */
+export const DEFAULT_BYOK_MODEL = DEFAULT_OPENAI_MODEL;
+export const DEFAULT_BYOK_BASE_URL = DEFAULT_OPENAI_BASE_URL;
+
+/** Chaves de API nunca entram no config.json nem no banco. */
 export const CODEANCHOR_API_KEY_ENV = 'CODEANCHOR_API_KEY';
+export const OPENAI_API_KEY_ENV = 'OPENAI_API_KEY';
+export const ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY';
+export const GEMINI_API_KEY_ENV = 'GEMINI_API_KEY';
+export const GOOGLE_API_KEY_ENV = 'GOOGLE_API_KEY';
 
 /** Por padrão observamos a raiz do projeto; os ignores cuidam de node_modules etc. */
 export const DEFAULT_WATCH_PATHS = ['.'];
@@ -47,14 +63,25 @@ export const DEFAULT_IGNORES = [
 ];
 
 /**
- * Provider de IA:
+ * Providers de IA:
  * - none: resumo heurístico local, sem chamadas externas
- * - byok: API compatível com OpenAI (chave em CODEANCHOR_API_KEY)
+ * - openai: API da OpenAI
+ * - anthropic: API da Anthropic (Claude)
+ * - gemini: API do Google Gemini
+ * - openai-compatible: qualquer API compatível com OpenAI (OpenRouter, Groq, DeepSeek, LM Studio…)
  * - ollama: modelo local via Ollama
  */
-export type LlmProvider = 'none' | 'byok' | 'ollama';
+export type LlmProvider =
+  'none' | 'openai' | 'anthropic' | 'gemini' | 'openai-compatible' | 'ollama';
 
-export const LLM_PROVIDERS: readonly LlmProvider[] = ['none', 'byok', 'ollama'];
+export const LLM_PROVIDERS: readonly LlmProvider[] = [
+  'none',
+  'openai',
+  'anthropic',
+  'gemini',
+  'openai-compatible',
+  'ollama',
+];
 
 export interface LlmConfig {
   provider: LlmProvider;
@@ -64,6 +91,12 @@ export interface LlmConfig {
   baseUrl: string | null;
   /** Timeout de cada chamada de IA (ms). */
   timeoutMs: number;
+  /** Limite de tokens da resposta. */
+  maxTokens?: number;
+  /** Temperatura da geração (0 a 2). */
+  temperature?: number;
+  /** Providers tentados em ordem se o principal falhar (opcional). */
+  fallbackProviders?: LlmProvider[];
 }
 
 export interface WatchConfig {
@@ -136,6 +169,11 @@ export function resolveConfigPaths(
   };
 }
 
+/** Caminho do .codeanchor/.env (carregado no start/ai test). */
+export function projectEnvPath(projectRoot: string): string {
+  return path.join(path.resolve(projectRoot), CONFIG_DIR_NAME, ENV_FILE_NAME);
+}
+
 /** Nome padrão do projeto: nome da pasta raiz. */
 export function defaultProjectName(projectRoot: string): string {
   const name = path.basename(path.resolve(projectRoot));
@@ -152,14 +190,39 @@ export function providerDefaults(provider: LlmProvider): {
   baseUrl: string | null;
 } {
   switch (provider) {
-    case 'byok':
-      return { model: DEFAULT_BYOK_MODEL, baseUrl: DEFAULT_BYOK_BASE_URL };
+    case 'openai':
+      return { model: DEFAULT_OPENAI_MODEL, baseUrl: DEFAULT_OPENAI_BASE_URL };
+    case 'anthropic':
+      return { model: DEFAULT_ANTHROPIC_MODEL, baseUrl: DEFAULT_ANTHROPIC_BASE_URL };
+    case 'gemini':
+      return { model: DEFAULT_GEMINI_MODEL, baseUrl: DEFAULT_GEMINI_BASE_URL };
     case 'ollama':
       return { model: DEFAULT_OLLAMA_MODEL, baseUrl: DEFAULT_OLLAMA_BASE_URL };
+    case 'openai-compatible':
+      return { model: null, baseUrl: null };
     case 'none':
     default:
       return { model: null, baseUrl: null };
   }
+}
+
+/** Valores efetivos de timeout/max tokens/temperatura, aplicando padrões. */
+export function resolvedLlmSettings(config: LlmConfig): {
+  timeoutMs: number;
+  maxTokens: number;
+  temperature: number;
+  fallbackProviders: LlmProvider[];
+} {
+  return {
+    timeoutMs: normalizePositiveInt(config.timeoutMs, DEFAULT_AI_TIMEOUT_MS),
+    maxTokens: normalizePositiveInt(config.maxTokens, DEFAULT_MAX_TOKENS),
+    temperature: normalizeTemperature(config.temperature),
+    fallbackProviders: config.fallbackProviders ?? [],
+  };
+}
+
+export function effectiveModel(config: Pick<LlmConfig, 'provider' | 'model'>): string | null {
+  return config.model ?? providerDefaults(config.provider).model;
 }
 
 export interface CreateConfigInput {
@@ -172,6 +235,9 @@ export interface CreateConfigInput {
   maxFileSizeKb?: number;
   maxDiffKb?: number;
   timeoutMs?: number;
+  maxTokens?: number;
+  temperature?: number;
+  fallbackProviders?: LlmProvider[];
 }
 
 export function createDefaultConfig(input: CreateConfigInput): CodeAnchorConfig {
@@ -198,6 +264,9 @@ export function createDefaultConfig(input: CreateConfigInput): CodeAnchorConfig 
       model: normalizeOptionalString(input.model) ?? defaults.model,
       baseUrl: normalizeOptionalString(input.baseUrl) ?? defaults.baseUrl,
       timeoutMs: normalizePositiveInt(input.timeoutMs, DEFAULT_AI_TIMEOUT_MS),
+      maxTokens: normalizePositiveInt(input.maxTokens, DEFAULT_MAX_TOKENS),
+      temperature: normalizeTemperature(input.temperature),
+      fallbackProviders: input.fallbackProviders ?? [],
     },
     server: {
       host: DEFAULT_HOST,
@@ -214,16 +283,41 @@ export function configExists(projectRoot: string): boolean {
   return existsSync(resolveConfigPaths(projectRoot).configFile);
 }
 
+/**
+ * Grava o config com os campos de IA em snake_case (base_url, max_tokens,
+ * timeout, fallback_providers), mantendo o restante do formato.
+ */
 export function writeConfig(projectRoot: string, config: CodeAnchorConfig): string {
   const paths = resolveConfigPaths(projectRoot);
   mkdirSync(paths.configDir, { recursive: true });
-  writeFileSync(paths.configFile, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+  const serializable = {
+    version: config.version,
+    project: config.project,
+    watch: config.watch,
+    git: config.git,
+    llm: {
+      provider: config.llm.provider,
+      model: config.llm.model,
+      base_url: config.llm.baseUrl,
+      timeout: config.llm.timeoutMs,
+      max_tokens: config.llm.maxTokens ?? DEFAULT_MAX_TOKENS,
+      temperature: config.llm.temperature ?? DEFAULT_TEMPERATURE,
+      fallback_providers: config.llm.fallbackProviders ?? [],
+    },
+    server: config.server,
+    database: config.database,
+  };
+
+  writeFileSync(paths.configFile, `${JSON.stringify(serializable, null, 2)}\n`, 'utf8');
   return paths.configFile;
 }
 
 /**
- * Lê e valida a configuração local. Campos novos ausentes recebem o padrão,
- * permitindo abrir configs criados na Etapa 1 sem migração manual.
+ * Lê e valida a configuração local.
+ *
+ * Compatibilidade: aceita campos antigos em camelCase e o provider legado
+ * "byok", migrado para "openai" ou "openai-compatible" conforme o base_url.
  */
 export function readConfig(projectRoot: string): CodeAnchorConfig {
   const paths = resolveConfigPaths(projectRoot);
@@ -258,8 +352,8 @@ export function readConfig(projectRoot: string): CodeAnchorConfig {
     throw new ConfigError('config.json inválido: "project.name" é obrigatório.');
   }
 
-  const provider: LlmProvider =
-    typeof llm.provider === 'string' && isLlmProvider(llm.provider) ? llm.provider : 'none';
+  const rawBaseUrl = normalizeOptionalString(llm.base_url ?? llm.baseUrl);
+  const provider = resolveProvider(llm.provider, rawBaseUrl);
   const llmDefaults = providerDefaults(provider);
 
   const defaults = createDefaultConfig({
@@ -294,8 +388,11 @@ export function readConfig(projectRoot: string): CodeAnchorConfig {
     llm: {
       provider,
       model: normalizeOptionalString(llm.model) ?? llmDefaults.model,
-      baseUrl: normalizeOptionalString(llm.baseUrl) ?? llmDefaults.baseUrl,
-      timeoutMs: normalizePositiveInt(llm.timeoutMs, DEFAULT_AI_TIMEOUT_MS),
+      baseUrl: rawBaseUrl ?? llmDefaults.baseUrl,
+      timeoutMs: normalizePositiveInt(llm.timeout ?? llm.timeoutMs, DEFAULT_AI_TIMEOUT_MS),
+      maxTokens: normalizePositiveInt(llm.max_tokens ?? llm.maxTokens, DEFAULT_MAX_TOKENS),
+      temperature: normalizeTemperature(llm.temperature),
+      fallbackProviders: parseFallbackProviders(llm.fallback_providers ?? llm.fallbackProviders),
     },
     server: {
       host:
@@ -314,6 +411,36 @@ export function readConfig(projectRoot: string): CodeAnchorConfig {
   };
 }
 
+/** Normaliza o provider, incluindo a migração do antigo "byok". */
+export function resolveProvider(value: unknown, baseUrl: string | null): LlmProvider {
+  if (typeof value !== 'string') return 'none';
+  if (value === 'byok') {
+    return baseUrl !== null && !isOpenAiBaseUrl(baseUrl) ? 'openai-compatible' : 'openai';
+  }
+  return isLlmProvider(value) ? value : 'none';
+}
+
+/** true para o endpoint oficial da OpenAI (ou quando base_url está ausente). */
+export function isOpenAiBaseUrl(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host === 'api.openai.com';
+  } catch {
+    return baseUrl.trim().toLowerCase().startsWith('https://api.openai.com');
+  }
+}
+
+export function parseFallbackProviders(value: unknown): LlmProvider[] {
+  if (!Array.isArray(value)) return [];
+  const providers: LlmProvider[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const provider = resolveProvider(item, null);
+    if (!providers.includes(provider)) providers.push(provider);
+  }
+  return providers;
+}
+
 function stringArray(value: unknown, fallback: string[]): string[] {
   if (!Array.isArray(value)) return [...fallback];
   const items = value.filter((item): item is string => typeof item === 'string');
@@ -329,4 +456,11 @@ function normalizeOptionalString(value: unknown): string | null {
 function normalizePositiveInt(value: unknown, fallback: number): number {
   if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
   return fallback;
+}
+
+function normalizeTemperature(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 2) {
+    return value;
+  }
+  return DEFAULT_TEMPERATURE;
 }

@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 import { Command, InvalidArgumentError } from 'commander';
+import { runAiTest, runAiUse } from './commands/ai.js';
 import { runInit } from './commands/init.js';
+import {
+  canPrompt,
+  promptBaseUrlForProvider,
+  promptModelForProvider,
+  promptProviderChoice,
+} from './commands/init-prompts.js';
 import { runLog } from './commands/log.js';
 import { runStartCommand } from './commands/start.js';
-import { isLlmProvider, type LlmProvider } from './config.js';
+import { isLlmProvider, LLM_PROVIDERS, providerDefaults, type LlmProvider } from './config.js';
 import { CHANGE_EVENT_LAYERS, isChangeEventLayer, type ChangeEventLayer } from './db/index.js';
 import { logger } from './utils/logger.js';
 import { VERSION } from './version.js';
@@ -32,10 +39,15 @@ interface LogCliOptions {
   layer?: ChangeEventLayer;
 }
 
+interface AiUseCliOptions {
+  model?: string;
+  baseUrl?: string;
+}
+
 function parseProvider(value: string): LlmProvider {
   if (!isLlmProvider(value)) {
     throw new InvalidArgumentError(
-      `Provider inválido: "${value}". Use "none", "byok" ou "ollama".`,
+      `Provider inválido: "${value}". Use: ${LLM_PROVIDERS.join(', ')}.`,
     );
   }
   return value;
@@ -98,9 +110,17 @@ export function createProgram(): Command {
     .command('init')
     .description('Inicializa o CodeAnchor na raiz do projeto atual')
     .option('--name <nome>', 'nome do projeto (padrão: nome da pasta)')
-    .option('--provider <provider>', 'provider de IA: none | byok | ollama', parseProvider, 'none')
-    .option('--model <modelo>', 'modelo de IA (ex.: gpt-4o-mini, llama3.2)')
-    .option('--base-url <url>', 'endpoint da IA (OpenAI-compatível ou Ollama)', parseBaseUrl)
+    .option(
+      '--provider <provider>',
+      `provider de IA: ${LLM_PROVIDERS.join(' | ')} (padrão: none)`,
+      parseProvider,
+    )
+    .option('--model <modelo>', 'modelo de IA (ex.: gpt-4o-mini, claude-3-5-haiku-latest)')
+    .option(
+      '--base-url <url>',
+      'endpoint do provider (OpenAI-compatível, Ollama etc.)',
+      parseBaseUrl,
+    )
     .option(
       '--debounce <ms>',
       'agrupa mudanças neste intervalo (padrão: 1500)',
@@ -124,12 +144,45 @@ export function createProgram(): Command {
     .option('-y, --yes', 'não pergunta nada e adiciona .codeanchor/ ao .gitignore')
     .option('-f, --force', 'recria a configuração mesmo se o projeto já estiver inicializado')
     .action(async (options: InitCliOptions) => {
+      let provider = options.provider;
+      let model = options.model;
+      let baseUrl = options.baseUrl;
+
+      if (!options.yes && canPrompt()) {
+        if (!provider) {
+          const choice = await promptProviderChoice();
+          if (choice) {
+            provider = choice.provider;
+            model = choice.model ?? model;
+            baseUrl = choice.baseUrl ?? baseUrl;
+          }
+        } else if (provider !== 'none') {
+          if (!model) {
+            model = (await promptModelForProvider(providerDefaults(provider).model)) ?? undefined;
+          }
+          if (provider === 'openai-compatible' && !baseUrl) {
+            baseUrl = await promptBaseUrlForProvider();
+          }
+        }
+      }
+
+      provider ??= 'none';
+
+      if (provider === 'openai-compatible' && !baseUrl) {
+        logger.error('O provider "openai-compatible" exige --base-url.');
+        logger.hint(
+          'codeanchor init --provider openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>',
+        );
+        process.exitCode = 1;
+        return;
+      }
+
       await runInit({
         cwd: process.cwd(),
         name: options.name,
-        provider: options.provider,
-        model: options.model,
-        baseUrl: options.baseUrl,
+        provider,
+        model,
+        baseUrl,
         debounceMs: options.debounce,
         maxFileSizeKb: options.maxFileSize,
         maxDiffKb: options.maxDiff,
@@ -175,6 +228,27 @@ export function createProgram(): Command {
       });
     });
 
+  const ai = program.command('ai').description('Configura e testa o provider de IA');
+
+  ai.command('test')
+    .description('Envia um prompt curto ao provider configurado')
+    .action(async () => {
+      await runAiTest({ cwd: process.cwd() });
+    });
+
+  ai.command('use <provider>')
+    .description('Troca o provider de IA sem refazer o init')
+    .option('--model <modelo>', 'modelo a usar')
+    .option('--base-url <url>', 'endpoint do provider', parseBaseUrl)
+    .action(async (providerValue: string, options: AiUseCliOptions) => {
+      await runAiUse({
+        cwd: process.cwd(),
+        provider: parseProvider(providerValue),
+        model: options.model,
+        baseUrl: options.baseUrl,
+      });
+    });
+
   program.addHelpCommand('help [comando]', 'mostra a ajuda');
 
   program.addHelpText(
@@ -183,7 +257,9 @@ export function createProgram(): Command {
 Exemplos:
   codeanchor init                      prepara .codeanchor/ e o banco local
   codeanchor init --provider ollama    configura IA local (modelo padrão: llama3.2)
-  codeanchor init --yes                inicializa sem perguntas
+  codeanchor init --provider openai    usa OpenAI (chave em OPENAI_API_KEY)
+  codeanchor ai test                   testa o provider configurado
+  codeanchor ai use anthropic --model claude-3-5-haiku-latest
   codeanchor start                     sobe a API e o vigia em http://localhost:4317
   codeanchor start --no-watch          sobe só a API, sem observar arquivos
   codeanchor log                       mostra os últimos eventos e resumos

@@ -80,10 +80,22 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
   }
 
   const name = options.name?.trim() || defaultProjectName(projectRoot);
+  const provider = options.provider ?? 'none';
+  if (provider === 'openai-compatible' && !options.baseUrl) {
+    throw new Error(
+      'O provider "openai-compatible" exige um endpoint. Use --base-url (ex.: https://openrouter.ai/api/v1).',
+    );
+  }
+  if (provider === 'openai-compatible' && !options.model?.trim()) {
+    throw new Error(
+      'O provider "openai-compatible" exige um modelo. Use --model (ex.: meta-llama/llama-3.1-8b-instruct).',
+    );
+  }
+
   const config = createDefaultConfig({
     name,
     rootPath: projectRoot,
-    provider: options.provider ?? 'none',
+    provider,
     model: options.model,
     baseUrl: options.baseUrl,
     debounceMs: options.debounceMs,

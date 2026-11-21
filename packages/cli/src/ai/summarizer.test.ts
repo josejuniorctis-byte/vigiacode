@@ -114,45 +114,47 @@ describe('resumos com IA', () => {
     expect(warnings.some((message) => message.includes('heurístico'))).toBe(true);
   });
 
-  it('BYOK envia a chave do env e não a grava no resumo', async () => {
-    process.env.CODEANCHOR_API_KEY = 'sk-teste';
+  it('OpenAI envia a chave do env e não a grava no resumo', async () => {
     let authorization = '';
     const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
       authorization = String(
         (init?.headers as Record<string, string> | undefined)?.Authorization ?? '',
       );
       return new Response(
-        JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'Resumo BYOK.' } }] }),
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'Resumo OpenAI.' } }],
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     }) as typeof fetch;
 
     const summarizer = createSummarizer(
       {
-        provider: 'byok',
+        provider: 'openai',
         model: 'gpt-4o-mini',
         baseUrl: 'https://api.openai.com/v1',
         timeoutMs: 1000,
       },
-      { fetchImpl },
+      { fetchImpl, env: { CODEANCHOR_API_KEY: 'sk-teste' } },
     );
 
     const summary = await summarizer.summarize(input);
 
-    expect(summary).toBe('Resumo BYOK.');
+    expect(summary).toBe('Resumo OpenAI.');
     expect(authorization).toBe('Bearer sk-teste');
   });
 
-  it('byok sem chave cai no heurístico', async () => {
+  it('openai sem chave cai no heurístico', async () => {
     const warnings: string[] = [];
     const summarizer = createSummarizer(
       {
-        provider: 'byok',
+        provider: 'openai',
         model: 'gpt-4o-mini',
         baseUrl: 'https://api.openai.com/v1',
         timeoutMs: 1000,
       },
       {
+        env: {},
         logger: { warn: (message) => warnings.push(message) },
       },
     );
@@ -161,6 +163,48 @@ describe('resumos com IA', () => {
 
     expect(summary).toContain('1 arquivo alterado');
     expect(warnings.some((message) => message.includes('CODEANCHOR_API_KEY'))).toBe(true);
+    expect(warnings.some((message) => message.includes('OPENAI_API_KEY'))).toBe(true);
+  });
+
+  it('usa fallbackProviders quando o principal falha', async () => {
+    const warnings: string[] = [];
+    const fetchImpl = (async (url: string | URL | Request) => {
+      const target = String(url);
+      if (target.includes('openai.com')) {
+        return new Response(JSON.stringify({ error: 'indisponível' }), { status: 500 });
+      }
+      if (target.includes('11434')) {
+        return new Response(
+          JSON.stringify({ message: { content: 'Resumo do fallback Ollama.' } }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch;
+
+    const summarizer = createSummarizer(
+      {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        timeoutMs: 1000,
+        fallbackProviders: ['ollama'],
+      },
+      {
+        fetchImpl,
+        env: { OPENAI_API_KEY: 'sk-teste' },
+        logger: { warn: (message) => warnings.push(message) },
+      },
+    );
+
+    const summary = await summarizer.summarize(input);
+
+    expect(summary).toBe('Resumo do fallback Ollama.');
+    expect(warnings.some((message) => message.includes('openai'))).toBe(true);
+    expect(warnings.some((message) => message.includes('heurístico'))).toBe(false);
   });
 });
 

@@ -158,6 +158,9 @@ export class ChangeRecorder {
       const updated = updateChangeEventSummary(this.db, event.id, summary);
       if (updated) {
         this.hub.publish({ type: 'summary', event: toPublicEvent(updated) });
+        if (this.summarizer.provider !== 'none') {
+          logger.event(`🤖 ${updated.filePath}: ${truncateForLog(updated.summary ?? summary)}`);
+        }
       }
     });
   }

@@ -12,6 +12,8 @@ export default tseslint.config(
       '**/node_modules*/**',
       'packages/cli/drizzle/**',
       '**/*.d.ts',
+      '.scan-tmp/**',
+      '.pnpm-*/**',
     ],
   },
   js.configs.recommended,

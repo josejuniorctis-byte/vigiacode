@@ -2,11 +2,11 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
-// O build é servido pelo Fastify da CLI em http://localhost:4317.
+// O build vai embutido no pacote npm da CLI e é servido pelo Fastify em :4317.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
-    outDir: 'dist',
+    outDir: '../cli/dist/web',
     emptyOutDir: true,
   },
   server: {

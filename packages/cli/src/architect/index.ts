@@ -5,7 +5,6 @@ import { walkProjectFiles } from '../bindings/scanner.js';
 import { isSupportedBindingFile } from '../bindings/classify.js';
 import type { VigiaCodeConfig } from '../config.js';
 import {
-  closeGeneratedItemsForFile,
   closeGeneratedItemsNotSeen,
   listFrequentChangedFiles,
   listRoadmapItems,
@@ -16,7 +15,7 @@ import type { VigiaCodeDatabase } from '../db/client.js';
 import { listBindings } from '../db/bindings-repository.js';
 import type { Binding, Project, RoadmapKind } from '../db/schema.js';
 import { baseNameOf, dirOf, extensionOf, moduleOfPath } from './module.js';
-import { collectTodoComments } from './todos.js';
+import { collectTodoComments, type TodoComment } from './todos.js';
 
 export interface ArchitectOptions {
   db: VigiaCodeDatabase;
@@ -174,59 +173,95 @@ export class Architect {
   }
 
   private syncTodoItems(result: RoadmapGenerationResult, changedFiles?: readonly string[]): void {
-    const comments = collectTodoComments({
-      projectRoot: this.project.rootPath,
-      config: this.config,
-      files: changedFiles,
-    });
     const active = new Set<string>();
-
-    for (const comment of comments) {
-      const sourceRef = `${comment.file}:${comment.line}`;
-      active.add(sourceRef);
-      const upsert = upsertGeneratedItem(this.db, {
-        projectId: this.project.id,
-        title: `${comment.marker}: ${comment.text || 'dívida técnica'}`.slice(0, 160),
-        description: `Comentário ${comment.marker} em ${sourceRef}.`,
-        kind: 'debt',
-        priority: 'p2',
-        source: 'todo-comment',
-        sourceRef,
-        module: moduleOfPath(comment.file),
-        evidence: [`${comment.file}:${comment.line}`],
-        checklist: [checklistEntry(`Comentário ${comment.marker} removido`, false)],
-        links: [{ bindingId: null, filePath: comment.file, commitSha: null }],
-      });
-      recordUpsert(result, 'debt', upsert);
-      result.items.push(upsert.item);
-    }
-
-    if (changedFiles) {
-      const files = new Set(changedFiles);
-      for (const file of files) {
-        const refs = new Set([...active].filter((ref) => ref.startsWith(`${file}:`)));
-        const closed = closeGeneratedItemsForFile(
-          this.db,
-          this.project.id,
-          'debt',
-          file,
-          refs,
-          `Evidência: comentário removido de ${file} (scan incremental).`,
-        );
-        recordClosed(result, 'debt', closed.length);
-        result.items.push(...closed);
-      }
-    } else {
+    if (this.config.architect.todoComments === false) {
       const closed = closeGeneratedItemsNotSeen(
         this.db,
         this.project.id,
         'debt',
         active,
-        'Evidência: comentário TODO/FIXME/HACK não existe mais no projeto.',
+        'Evidência: architect.todoComments desligado no config.',
       );
       recordClosed(result, 'debt', closed.length);
       result.items.push(...closed);
+      return;
     }
+
+    const comments = this.collectTodoComments(changedFiles);
+    for (const [module, group] of groupTodosByModule(comments)) {
+      const sourceRef = `todo:${module}`;
+      active.add(sourceRef);
+      const counts = countMarkers(group);
+      const priority = counts.urgent > 0 ? 'p2' : 'p3';
+      const summary = markerSummary(counts);
+      const upsert = upsertGeneratedItem(this.db, {
+        projectId: this.project.id,
+        title: `Zerar débitos ${summary} em ${module}`.slice(0, 160),
+        description: [
+          `${group.length} comentário(s) de dívida técnica no módulo ${module}.`,
+          ...group.map(
+            (comment) =>
+              `- ${comment.marker} ${comment.file}:${comment.line} — ${comment.text || 'sem descrição'}`,
+          ),
+        ].join('\n'),
+        kind: 'debt',
+        priority,
+        source: 'todo-comment',
+        sourceRef,
+        module,
+        evidence: group.map(
+          (comment) =>
+            `${comment.marker} ${comment.file}:${comment.line} — ${comment.text || 'sem descrição'}`,
+        ),
+        checklist: [checklistEntry(`Zerar ${group.length} comentário(s) em ${module}`, false)],
+        links: [...new Set(group.map((comment) => comment.file))].map((file) => ({
+          bindingId: null,
+          filePath: file,
+          commitSha: null,
+        })),
+      });
+      recordUpsert(result, 'debt', upsert);
+      result.items.push(upsert.item);
+    }
+
+    const closed = closeGeneratedItemsNotSeen(
+      this.db,
+      this.project.id,
+      'debt',
+      active,
+      'Evidência: comentário TODO/FIXME/HACK não existe mais no projeto.',
+    );
+    recordClosed(result, 'debt', closed.length);
+    result.items.push(...closed);
+  }
+
+  /**
+   * Em scan incremental, mescla os comentários dos arquivos alterados com os
+   * já conhecidos (que vêm da evidência dos itens agrupados por módulo).
+   */
+  private collectTodoComments(changedFiles?: readonly string[]): TodoComment[] {
+    if (!changedFiles) {
+      return collectTodoComments({ projectRoot: this.project.rootPath, config: this.config });
+    }
+    const changed = new Set(changedFiles);
+    const kept: TodoComment[] = [];
+    const items = listRoadmapItems(this.db, this.project.id, {
+      kind: 'debt',
+      source: 'todo-comment',
+      limit: 10_000,
+    });
+    for (const item of items) {
+      for (const evidence of item.evidence) {
+        const comment = parseTodoEvidence(evidence);
+        if (comment && !changed.has(comment.file)) kept.push(comment);
+      }
+    }
+    const fresh = collectTodoComments({
+      projectRoot: this.project.rootPath,
+      config: this.config,
+      files: changedFiles,
+    });
+    return [...kept, ...fresh];
   }
 
   private syncTestItems(result: RoadmapGenerationResult): void {
@@ -565,7 +600,64 @@ function slugify(value: string): string {
     .slice(0, 60);
 }
 
-/** Itens p0/p1 ainda abertos (usado na home, status e MCP). */
+/** Agrupa os comentários de dívida por módulo (1 item de roadmap por módulo). */
+export function groupTodosByModule(comments: readonly TodoComment[]): Map<string, TodoComment[]> {
+  const groups = new Map<string, TodoComment[]>();
+  for (const comment of comments) {
+    const module = moduleOfPath(comment.file);
+    const bucket = groups.get(module) ?? [];
+    bucket.push(comment);
+    groups.set(module, bucket);
+  }
+  for (const bucket of groups.values()) {
+    bucket.sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line);
+  }
+  return new Map([...groups.entries()].sort(([left], [right]) => left.localeCompare(right)));
+}
+
+interface MarkerCounts {
+  todo: number;
+  fixme: number;
+  hack: number;
+  urgent: number;
+}
+
+function countMarkers(comments: readonly TodoComment[]): MarkerCounts {
+  const counts: MarkerCounts = { todo: 0, fixme: 0, hack: 0, urgent: 0 };
+  for (const comment of comments) {
+    if (comment.marker === 'FIXME') counts.fixme += 1;
+    else if (comment.marker === 'HACK') counts.hack += 1;
+    else counts.todo += 1;
+  }
+  counts.urgent = counts.fixme + counts.hack;
+  return counts;
+}
+
+function markerSummary(counts: MarkerCounts): string {
+  const parts: string[] = [];
+  if (counts.todo > 0) parts.push(`${counts.todo} TODO`);
+  if (counts.fixme > 0) parts.push(`${counts.fixme} FIXME`);
+  if (counts.hack > 0) parts.push(`${counts.hack} HACK`);
+  return parts.join(' + ');
+}
+
+const TODO_EVIDENCE_PATTERN = /^(TODO|FIXME|HACK)\s+(.+):(\d+)\s+—\s*(.*)$/;
+
+/** Reconstrói um comentário a partir da evidência legível salva no item. */
+export function parseTodoEvidence(evidence: string): TodoComment | null {
+  const match = TODO_EVIDENCE_PATTERN.exec(evidence);
+  if (!match) return null;
+  const line = Number.parseInt(match[3] ?? '', 10);
+  if (!Number.isFinite(line)) return null;
+  return {
+    marker: (match[1] ?? 'TODO') as TodoComment['marker'],
+    file: match[2] ?? '',
+    line,
+    text: match[4] ?? '',
+  };
+}
+
+/** Itens p0/p1 ainda abertos (usado na home, status e MCP). Débitos p3 não entram. */
 export function listNextSteps(
   db: VigiaCodeDatabase,
   projectId: string,

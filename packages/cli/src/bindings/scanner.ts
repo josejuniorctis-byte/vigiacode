@@ -251,10 +251,25 @@ export class BindingsScanner {
         this.config.bindings.acceptedFalsePositives,
       );
       const matrix = buildMatrix(map, findings, scan.id);
+      // Entidades "ok" (2 de 3 camadas, terceira não aplicável) contam como
+      // itens avaliados na saúde de contrato, sem gerar binding no banco.
+      const coverageRules = [...evaluation.coverage];
+      if (matrix.totals.ok > 0) {
+        coverageRules.push({
+          ruleId: 'OK',
+          enabled: true,
+          evaluated: matrix.totals.ok,
+          ignored: 0,
+          red: 0,
+          yellow: 0,
+          green: matrix.totals.ok,
+          note: 'contrato em 2 camadas; a terceira não se aplica',
+        });
+      }
       const coverage = {
         profile: evaluation.profile,
         typedHttpClient: evaluation.typedHttpClient,
-        rules: evaluation.coverage,
+        rules: coverageRules,
       };
       const finished = finishBindingScan(this.db, scan.id, {
         filesScanned,

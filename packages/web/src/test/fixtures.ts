@@ -86,6 +86,10 @@ export const bindingSummaryFixture: BindingSummary = {
   healthPercent: 62,
   weightedHealthPercent: 76,
   fieldHealthPercent: 50,
+  contractHealthPercent: 78,
+  contractEvaluated: 13,
+  contractPending: 2.8,
+  okItems: 2,
   byRule: [
     { ruleId: 'R1', red: 1, yellow: 0, green: 0 },
     { ruleId: 'GREEN', red: 0, yellow: 0, green: 5 },
@@ -164,7 +168,7 @@ export const bindingMatrixFixture: BindingMatrix = {
       missing: ['backend', 'database'],
     },
   ],
-  totals: { entities: 2, integrated: 0, partial: 1, local: 0, missing: 1 },
+  totals: { entities: 2, integrated: 0, partial: 1, ok: 1, local: 0, missing: 1 },
 };
 
 export function batchEvents(): ChangeEvent[] {

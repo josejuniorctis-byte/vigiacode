@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (CLI + dashboard embutido)
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Testes
+        run: pnpm test
+
+      - name: Formatação
+        run: pnpm format:check
+
+  package:
+    name: Pacote npm (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: npm pack
+        working-directory: packages/cli
+        run: npm pack
+
+      - name: Instalar o .tgz fora do monorepo e rodar o scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(pwd)"
+          tmp="$(mktemp -d)"
+          cp packages/cli/vigiacode-*.tgz "$tmp/"
+          mkdir -p "$tmp/project" && cd "$tmp/project"
+          printf 'node_modules\n' > .gitignore
+          git init -q && git -c user.email=ci@example.com -c user.name=CI commit -q --allow-empty -m init
+          npm install --no-audit --no-fund "$tmp"/vigiacode-*.tgz >/dev/null
+          ./node_modules/.bin/vigiacode init --yes --no-gitignore
+          ./node_modules/.bin/vigiacode bindings scan --fail-on none
+          test -s node_modules/vigiacode/dist/web/index.html
+          echo "pacote ok: $root"

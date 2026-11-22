@@ -1,12 +1,35 @@
 {
   "name": "vigiacode",
   "version": "0.1.0",
-  "description": "CLI do VigiaCode — vigia de mudanças, diffs e resumos para projetos com agentes de IA.",
+  "description": "VigiaCode — rastreador de amarrações front/back/banco, roadmap vivo e servidor MCP para projetos desenvolvidos com agentes de IA.",
+  "keywords": [
+    "ai",
+    "agents",
+    "architecture",
+    "bindings",
+    "code-review",
+    "developer-tools",
+    "drizzle",
+    "fastify",
+    "mcp",
+    "model-context-protocol",
+    "prisma",
+    "roadmap",
+    "sqlite",
+    "typescript"
+  ],
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/josejuniorctis-byte/vigiacode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/josejuniorctis-byte/vigiacode/issues"
+  },
+  "homepage": "https://github.com/josejuniorctis-byte/vigiacode#readme",
   "bin": {
-    "vigiacode": "dist/index.js",
-    "codeanchor": "dist/index.js"
+    "vigiacode": "dist/index.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,13 +41,14 @@
   },
   "files": [
     "dist",
-    "drizzle"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "start": "node dist/index.js start",
     "typecheck": "tsc -p tsconfig.json --noEmit",

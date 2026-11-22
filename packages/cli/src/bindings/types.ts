@@ -3,8 +3,8 @@ import type { BindingLayer, BindingScan, BindingStatus } from '../db/schema.js';
 import type { BindingSummary } from '../db/bindings-repository.js';
 import type { NormalizedType } from './names.js';
 
-/** Regras de detecção (R1..R10) + a amarração saudável (GREEN). */
-export type FindingRuleId = BindingRuleId | 'GREEN';
+/** Regras de detecção (R1..R10) + a amarração saudável (GREEN) + contrato ok (2 de 3). */
+export type FindingRuleId = BindingRuleId | 'GREEN' | 'OK';
 
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
@@ -163,7 +163,7 @@ export interface BindingCoverageReport {
 }
 
 export type MatrixCellState = 'integrated' | 'partial' | 'local' | 'missing' | 'empty';
-export type MatrixLink = 'integrated' | 'partial' | 'local' | 'missing' | 'link';
+export type MatrixLink = 'integrated' | 'partial' | 'ok' | 'local' | 'missing' | 'link';
 
 export interface MatrixCell {
   state: MatrixCellState;
@@ -177,7 +177,7 @@ export interface MatrixRow {
   front: MatrixCell;
   back: MatrixCell;
   db: MatrixCell;
-  status: BindingStatus;
+  status: BindingStatus | 'ok';
   /** Visão resumida usada pelos ícones do dashboard. */
   link: MatrixLink;
   pending: number;
@@ -192,6 +192,7 @@ export interface BindingMatrix {
     entities: number;
     integrated: number;
     partial: number;
+    ok: number;
     local: number;
     missing: number;
   };

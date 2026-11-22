@@ -1,6 +1,7 @@
-import type { BindingLayer, BindingStatus } from '../db/schema.js';
+import type { BindingLayer } from '../db/schema.js';
 import type {
   BindingMatrix,
+  EntityInfo,
   Finding,
   MatrixCell,
   MatrixCellState,
@@ -10,9 +11,27 @@ import type {
 } from './types.js';
 import { formatRef } from './types.js';
 
+/** Projeções de leitura não são contratos de persistência. */
+const NON_PERSISTED_NAME =
+  /(Response|View|Projection|Summary|Resumo|Report|Dashboard|Stats|Statistics|Lookup|Option|Page|Result|Dto)$/i;
+/** Nomes que claramente indicam tabela: se não há banco, é falta de amarração. */
+const PERSISTENCE_NAME = /(Entity|Model|Table|Record|Document)$/i;
+
+/**
+ * A terceira camada não se aplica quando o contrato front ↔ back é de um
+ * endpoint de caso de uso (sem tabela própria), não de uma entidade persistida.
+ */
+function layerNotApplicable(map: ProjectMap, entityName: string, back: EntityInfo): boolean {
+  if (map.database.has(entityName) || map.migrationColumns.has(entityName)) return false;
+  if (PERSISTENCE_NAME.test(back.rawName)) return false;
+  if (!map.endpoints.some((endpoint) => endpoint.entity === entityName)) return false;
+  const usedByFront = map.calls.some((call) => call.entity === entityName);
+  return usedByFront || NON_PERSISTED_NAME.test(back.rawName) || back.sources.includes('dto');
+}
+
 /**
  * Matriz Entidade × Front × Back × Banco.
- * ✅ integrado · 🟡 parcial · ⬜ só local · ❌ faltando · ↗ falta amarrar
+ * ✅ integrado · ✓ ok (2 de 3, terceira não se aplica) · 🟡 parcial · ⬜ só local · ❌ faltando · ↗ falta amarrar
  */
 export function buildMatrix(
   map: ProjectMap,
@@ -46,7 +65,7 @@ export function buildMatrix(
       (layer) => !present.includes(layer as BindingLayer),
     ) as BindingLayer[];
 
-    let status: BindingStatus;
+    let status: MatrixRow['status'];
     let link: MatrixLink;
     if (frontLocal) {
       status = 'yellow';
@@ -59,6 +78,9 @@ export function buildMatrix(
         status = 'yellow';
         link = 'partial';
       }
+    } else if (front && back && !db && pending === 0 && layerNotApplicable(map, entityName, back)) {
+      status = 'ok';
+      link = 'ok';
     } else if (front && (back || db) && missing.length > 0) {
       status = 'red';
       link = 'link';
@@ -88,6 +110,7 @@ export function buildMatrix(
     entities: rows.length,
     integrated: rows.filter((row) => row.link === 'integrated').length,
     partial: rows.filter((row) => row.link === 'partial').length,
+    ok: rows.filter((row) => row.link === 'ok').length,
     local: rows.filter((row) => row.link === 'local').length,
     missing: rows.filter((row) => row.link === 'missing' || row.link === 'link').length,
   };

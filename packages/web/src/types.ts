@@ -229,6 +229,10 @@ export interface BindingSummary {
   healthPercent: number;
   weightedHealthPercent: number;
   fieldHealthPercent: number;
+  contractHealthPercent: number;
+  contractEvaluated: number;
+  contractPending: number;
+  okItems: number;
   byRule: BindingRuleCount[];
   byLayer: BindingLayerCount[];
   coverage: RuleCoverage[];
@@ -237,7 +241,7 @@ export interface BindingSummary {
 }
 
 export type MatrixCellState = 'integrated' | 'partial' | 'local' | 'missing' | 'empty';
-export type MatrixLink = 'integrated' | 'partial' | 'local' | 'missing' | 'link';
+export type MatrixLink = 'integrated' | 'partial' | 'ok' | 'local' | 'missing' | 'link';
 
 export interface MatrixCell {
   state: MatrixCellState;
@@ -251,7 +255,7 @@ export interface MatrixRow {
   front: MatrixCell;
   back: MatrixCell;
   db: MatrixCell;
-  status: BindingStatus;
+  status: BindingStatus | 'ok';
   link: MatrixLink;
   pending: number;
   missing: BindingLayerName[];
@@ -265,6 +269,7 @@ export interface BindingMatrix {
     entities: number;
     integrated: number;
     partial: number;
+    ok: number;
     local: number;
     missing: number;
   };

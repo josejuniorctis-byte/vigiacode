@@ -8,7 +8,7 @@ import type { AiStatusSnapshot, AiStatusTracker } from '../ai/status.js';
 import type { BindingExplanation, BindingMatrix, BindingsScanner } from '../bindings/index.js';
 import { addAcceptedFalsePositive } from '../bindings/accept.js';
 import { explainHeuristic } from '../bindings/explain.js';
-import type { Architect } from '../architect/index.js';
+import { listNextSteps, type Architect } from '../architect/index.js';
 import {
   effectiveModel,
   isBindingRuleId,
@@ -101,6 +101,7 @@ export function packageRoot(): string {
 export function resolveWebDistPath(): string | null {
   const candidates = [
     process.env.VIGIACODE_WEB_DIST,
+    path.resolve(packageRoot(), 'dist/web'),
     path.resolve(packageRoot(), '../web/dist'),
     path.resolve(packageRoot(), 'web'),
   ];
@@ -573,13 +574,8 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     return {
       items,
       counts: countRoadmapItems(options.db, project.id),
-      next: items
-        .filter(
-          (item) =>
-            (item.status === 'todo' || item.status === 'doing') &&
-            (item.priority === 'p0' || item.priority === 'p1'),
-        )
-        .slice(0, 5),
+      // Débitos p3 (TODO) ficam fora dos próximos passos.
+      next: listNextSteps(options.db, project.id, 5),
     };
   });
 
@@ -852,7 +848,7 @@ function emptyMatrix(): BindingMatrix {
     generatedAt: new Date().toISOString(),
     scanId: null,
     entities: [],
-    totals: { entities: 0, integrated: 0, partial: 0, local: 0, missing: 0 },
+    totals: { entities: 0, integrated: 0, partial: 0, ok: 0, local: 0, missing: 0 },
   };
 }
 
@@ -949,6 +945,7 @@ function publicConfig(config: VigiaCodeConfig): Record<string, unknown> {
       fallbackProviders: config.llm.fallbackProviders ?? [],
     },
     bindings: config.bindings,
+    architect: config.architect,
     server: config.server,
     database: config.database,
   };

@@ -261,6 +261,15 @@ export interface DatabaseConfig {
   file: string;
 }
 
+export interface ArchitectConfig {
+  /** Gera itens de débito a partir de comentários TODO/FIXME/HACK do projeto. */
+  todoComments: boolean;
+}
+
+export const DEFAULT_ARCHITECT_CONFIG: ArchitectConfig = {
+  todoComments: true,
+};
+
 export interface VigiaCodeConfig {
   version: 1;
   project: {
@@ -271,6 +280,7 @@ export interface VigiaCodeConfig {
   git: GitConfig;
   llm: LlmConfig;
   bindings: BindingsConfig;
+  architect: ArchitectConfig;
   server: ServerConfig;
   database: DatabaseConfig;
 }
@@ -422,6 +432,7 @@ export function createDefaultConfig(input: CreateConfigInput): VigiaCodeConfig {
       fallbackProviders: input.fallbackProviders ?? [],
     },
     bindings: createDefaultBindingsConfig(),
+    architect: { ...DEFAULT_ARCHITECT_CONFIG },
     server: {
       host: DEFAULT_HOST,
       port: DEFAULT_PORT,
@@ -460,6 +471,7 @@ export function writeConfig(projectRoot: string, config: VigiaCodeConfig): strin
       fallback_providers: config.llm.fallbackProviders ?? [],
     },
     bindings: config.bindings,
+    architect: config.architect,
     server: config.server,
     database: config.database,
   };
@@ -501,6 +513,7 @@ export function readConfig(projectRoot: string): VigiaCodeConfig {
   const git = (data.git ?? {}) as Record<string, unknown>;
   const llm = (data.llm ?? {}) as Record<string, unknown>;
   const bindings = (data.bindings ?? {}) as Record<string, unknown>;
+  const architect = (data.architect ?? {}) as Record<string, unknown>;
   const server = (data.server ?? {}) as Record<string, unknown>;
   const database = (data.database ?? {}) as Record<string, unknown>;
 
@@ -551,6 +564,7 @@ export function readConfig(projectRoot: string): VigiaCodeConfig {
       fallbackProviders: parseFallbackProviders(llm.fallback_providers ?? llm.fallbackProviders),
     },
     bindings: parseBindingsConfig(bindings),
+    architect: parseArchitectConfig(architect),
     server: {
       host:
         typeof server.host === 'string' && server.host.length > 0
@@ -631,6 +645,14 @@ export function parseBindingsConfig(value: Record<string, unknown>): BindingsCon
         : typeof value.r1_include_types === 'boolean'
           ? value.r1_include_types
           : defaults.r1IncludeTypes,
+  };
+}
+
+/** Lê `architect{}`, aceitando `todoComments`/`todo_comments`. */
+export function parseArchitectConfig(value: Record<string, unknown>): ArchitectConfig {
+  const raw = value.todoComments ?? value.todo_comments;
+  return {
+    todoComments: typeof raw === 'boolean' ? raw : DEFAULT_ARCHITECT_CONFIG.todoComments,
   };
 }
 

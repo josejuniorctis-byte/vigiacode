@@ -1,0 +1,22 @@
+services:
+  vigiacode:
+    build: .
+    image: vigiacode:local
+    container_name: vigiacode
+    ports:
+      - '4317:4317'
+    volumes:
+      # Código do projeto: somente leitura. O container nunca altera o projeto.
+      - .:/project:ro
+      # Estado local do VigiaCode (config, SQLite, .env): volume próprio.
+      - vigiacode-state:/project/.vigiacode
+    environment:
+      # Chaves de IA vêm do ambiente do host (nunca do compose nem da imagem).
+      # OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # VIGIACODE_API_KEY: ${VIGIACODE_API_KEY:-}
+      VIGIACODE_PROJECT_NAME: ${VIGIACODE_PROJECT_NAME:-}
+    restart: unless-stopped
+
+volumes:
+  vigiacode-state:

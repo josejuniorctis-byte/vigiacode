@@ -373,7 +373,11 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
   logger.detail(`Projeto: ${project.name}`);
   logger.detail(`API:     ${url}/api/health`);
   logger.detail(
-    `Web:     ${webDistPath ? url : 'ainda não buildada (rode "pnpm build" na raiz do monorepo)'}`,
+    `Web:     ${
+      webDistPath
+        ? url
+        : 'não encontrado no pacote (reinstale o vigiacode; no monorepo, rode "pnpm build")'
+    }`,
   );
   logger.detail(`Banco:   ${toPosix(path.relative(projectRoot, databasePaths.databaseFile))}`);
   logger.detail(

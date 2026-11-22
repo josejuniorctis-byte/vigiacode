@@ -93,7 +93,7 @@ export async function runBindingsScan(options: BindingsScanOptions): Promise<voi
     const summary = result.summary;
     logger.blank();
     logger.info(
-      `${result.filesScanned} arquivo(s) · ${summary.red}🔴 ${summary.yellow}🟡 ${summary.green}🟢 · saúde ${summary.healthPercent}%`,
+      `${result.filesScanned} arquivo(s) · saúde de contrato ${summary.contractHealthPercent}% · ${summary.red}🔴 ${summary.yellow}🟡 ${summary.green}🟢 · ${summary.okItems} ok`,
     );
     logger.detail(
       `Novas: ${result.created.length} · resolvidas: ${result.resolved.length} · ticket: ${result.scan.id.slice(0, 8)}`,
@@ -144,7 +144,7 @@ export async function runBindingsList(options: BindingsListOptions): Promise<voi
     const summary = summarizeBindings(context.opened.db, context.project.id);
 
     logger.info(
-      `${bindings.length} amarração(ões) listada(s) · ${summary.red}🔴 ${summary.yellow}🟡 ${summary.green}🟢`,
+      `${bindings.length} amarração(ões) listada(s) · saúde de contrato ${summary.contractHealthPercent}% · ${summary.red}🔴 ${summary.yellow}🟡 ${summary.green}🟢`,
     );
 
     if (bindings.length === 0) {
@@ -211,7 +211,7 @@ export async function runBindingsMatrix(options: BindingsMatrixOptions): Promise
     const totals = matrix?.totals ?? {};
     logger.blank();
     logger.info(
-      `${totals.integrated ?? 0} integrada(s) · ${totals.partial ?? 0} parcial(is) · ${totals.local ?? 0} só local · ${totals.missing ?? 0} faltando`,
+      `${totals.integrated ?? 0} integrada(s) · ${totals.ok ?? 0} ok · ${totals.partial ?? 0} parcial(is) · ${totals.local ?? 0} só local · ${totals.missing ?? 0} faltando`,
     );
   } finally {
     context.opened.close();

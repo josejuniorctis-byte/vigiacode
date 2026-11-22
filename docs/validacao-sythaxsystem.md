@@ -38,21 +38,47 @@ Config usada no projeto (`.vigiacode/config.json`), sem nada específico no cód
 | 🔴 vermelhas                    | **3**                                               |
 | 🟡 amarelas                     | **1.005**                                           |
 | 🟢 verdes                       | **0**                                               |
-| Saúde                           | **0%**                                              |
-| Total ativo                     | 1.008                                               |
+| ✓ ok (2 de 3 camadas)           | **2**                                               |
+| Itens avaliados                 | **5.656** (cobertura por regra, inclui os 2 ok)     |
+| Pendências ponderadas           | **304,5** (3×1 + 1.005×0,3)                         |
+| **Saúde de contrato**           | **94,6%** (exibida como 95%)                        |
+| Saúde ponderada (detalhe)       | 0%                                                  |
+
+> A saúde de contrato é a métrica principal desde a Etapa 6:
+> `1 − pendências ponderadas / itens avaliados`. Os 1.005 amarelos só pesam 0,3
+> cada; por isso 95%, e não 0%. A saúde ponderada antiga (0%) continua visível
+> como detalhe — ela mede só os verdes contra as pendências e penaliza um
+> projeto sem triplas de campo detectáveis.
 
 Evolução: o primeiro passe, com os padrões genéricos e sem tuning de projeto, produziu **4.714 pendências (982🔴 / 3.732🟡)**. Depois dos ajustes de extractors, regras e config, caiu para **1.008 (3🔴 / 1.005🟡)** — redução de ~79%.
 
-Por regra:
+Por regra (avaliados × resultado no último scan):
 
-| Regra | Total |  🔴 |  🟡 |
-| ----- | ----: | --: | --: |
-| R2    |     3 |   3 |   0 |
-| R3    |    83 |   0 |  83 |
-| R5    |   875 |   0 | 875 |
-| R6    |    47 |   0 |  47 |
+| Regra     | Avaliados |  🔴 |  🟡 |
+| --------- | --------: | --: | --: |
+| R2        |        99 |   3 |   0 |
+| R3        |     4.485 |   0 |  83 |
+| R4        |        62 |   0 |   0 |
+| R5        |       938 |   0 | 875 |
+| R6        |        67 |   0 |  47 |
+| R7        |         3 |   0 |   0 |
+| GREEN     |         0 |   0 |   0 |
+| OK        |         2 |   0 |   0 |
+| R1/R8–R10 |         0 |   0 |   0 |
 
-R1, R4, R7, R8, R9 e R10 não geraram pendências ativas neste recorte.
+### Etapa 6 — saúde de contrato e débitos agrupados
+
+| Antes (Etapa 5)                                   | Depois (Etapa 6)                                              |
+| ------------------------------------------------- | ------------------------------------------------------------- |
+| 153 itens abertos: 2 `p1` binding + 151 `p2` debt | 20 itens abertos: 2 `p1` binding + 18 `p3` debt por módulo    |
+| um item de dívida por comentário TODO             | um item por módulo, com a lista `arquivo:linha` na evidência  |
+| TODO virava `p2` e aparecia nos próximos passos   | TODO vira `p3` (FIXME/HACK `p2`) e fica fora dos 5 próximos   |
+| matriz sem estado para contrato de 2 camadas      | 2 entidades marcadas **✓ ok** e contadas na saúde de contrato |
+
+O `architect generate` fechou os 151 itens antigos com a evidência
+“comentário TODO/FIXME/HACK não existe mais no projeto” (o agrupamento substitui
+o item por comentário) e criou 18 itens `p3`, um por módulo. Nenhum item manual
+foi tocado. O teste rodou em modo somente leitura fora de `.vigiacode/`.
 
 ### Por que 0 verdes?
 

@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: npm pack
+        working-directory: packages/cli
+        run: npm pack
+
+      - name: Anexar .tgz ao GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/cli/vigiacode-*.tgz
+          generate_release_notes: true
+
+      # Publica somente quando o secret NPM_TOKEN estiver configurado.
+      # Sem o secret, o workflow apenas gera o Release com o .tgz anexado.
+      - name: Publicar no npm
+        if: env.NPM_TOKEN != ''
+        working-directory: packages/cli
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -238,12 +238,50 @@ export interface BindingSummary {
   weightedHealthPercent: number;
   /** mesma fórmula, restrita às regras de campo (R1–R3). */
   fieldHealthPercent: number;
+  /**
+   * Métrica principal: 1 − (pendências ponderadas / itens avaliados).
+   * Pendências vêm da cobertura por regra (🔴 peso 1, 🟡 peso 0,3) e os itens
+   * ok (2 de 3 camadas) entram como avaliados sem peso.
+   */
+  contractHealthPercent: number;
+  /** Itens avaliados no último scan (cobertura por regra). */
+  contractEvaluated: number;
+  /** Pendências ponderadas do último scan (🔴×1 + 🟡×0,3). */
+  contractPending: number;
+  /** Entidades "ok": contrato em 2 camadas, terceira não aplicável. */
+  okItems: number;
   byRule: BindingRuleCount[];
   byLayer: BindingLayerCount[];
   /** Cobertura por regra congelada no último scan. */
   coverage: RuleCoverage[];
   profile: string | null;
   lastScan: BindingScan | null;
+}
+
+/** Pendência ponderada: 🔴 vale 1, 🟡 vale 0,3. */
+export function weightedPending(red: number, yellow: number): number {
+  return red + yellow * 0.3;
+}
+
+/** Saúde de contrato a partir da cobertura: 1 − pendências ponderadas / avaliados. */
+export function contractHealth(coverage: readonly RuleCoverage[]): {
+  percent: number | null;
+  evaluated: number;
+  pending: number;
+} {
+  let evaluated = 0;
+  let red = 0;
+  let yellow = 0;
+  for (const rule of coverage) {
+    if (!rule.enabled) continue;
+    evaluated += rule.evaluated;
+    red += rule.red;
+    yellow += rule.yellow;
+  }
+  const pending = weightedPending(red, yellow);
+  if (evaluated === 0) return { percent: null, evaluated: 0, pending };
+  const percent = Math.max(0, Math.min(100, Math.round((1 - pending / evaluated) * 100)));
+  return { percent, evaluated, pending };
 }
 
 /** Saúde ponderada: amarelas contam como 30% de um problema. */
@@ -300,6 +338,8 @@ export function summarizeBindings(
 
   const coverage = parseCoverage(lastScan?.coverageJson ?? null);
   const active = red + yellow + green;
+  const contract = contractHealth(coverage.rules);
+  const contractHealthPercent = contract.percent ?? weightedHealth(green, red, yellow);
   return {
     red,
     yellow,
@@ -311,6 +351,15 @@ export function summarizeBindings(
     healthPercent: active === 0 ? 100 : Math.round((green / active) * 100),
     weightedHealthPercent: weightedHealth(green, red, yellow),
     fieldHealthPercent: weightedHealth(fieldGreen, fieldRed, fieldYellow),
+    contractHealthPercent,
+    contractEvaluated: contract.percent === null ? active : contract.evaluated,
+    contractPending:
+      contract.percent === null
+        ? weightedPending(red, yellow)
+        : Math.round(contract.pending * 10) / 10,
+    okItems: coverage.rules
+      .filter((rule) => rule.ruleId === 'OK')
+      .reduce((sum, rule) => sum + rule.evaluated, 0),
     byRule: [...byRule.values()].sort((left, right) => left.ruleId.localeCompare(right.ruleId)),
     byLayer: [...byLayer.values()].sort((left, right) => left.layer.localeCompare(right.layer)),
     coverage: coverage.rules,

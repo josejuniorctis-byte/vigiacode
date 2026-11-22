@@ -134,9 +134,11 @@ describe('Arquiteto (roadmap determinístico)', () => {
       expect(debts).toHaveLength(1);
       const debt = debts[0]!;
       expect(debt.status).toBe('todo');
-      expect(debt.sourceRef).toMatch(/^src\/pages\/UsersPage\.tsx:\d+$/);
+      expect(debt.sourceRef).toBe('todo:pages');
+      expect(debt.priority).toBe('p3');
       expect(debt.module).toBe('pages');
-      expect(debt.checklist[0]?.label).toContain('TODO');
+      expect(debt.evidence[0]).toContain('TODO src/pages/UsersPage.tsx:');
+      expect(debt.checklist[0]?.label).toContain('Zerar 1 comentário');
 
       writeFileSync(usersPage, original, 'utf8');
       const removed = await scanner.scan({
@@ -151,8 +153,54 @@ describe('Arquiteto (roadmap determinístico)', () => {
 
       const closed = findRoadmapItem(opened.db, debt.id);
       expect(closed?.status).toBe('done');
-      expect(closed?.evidence[0]).toContain('comentário removido');
+      expect(closed?.evidence.join(' ')).toContain('não existe mais');
     } finally {
+      opened.close();
+    }
+  });
+
+  it('agrupa TODO/FIXME por módulo com prioridade p3 para TODO e p2 para FIXME/HACK', async () => {
+    const { opened, scanner, architect, project, root } = setup();
+    const usersPage = path.join(root, 'src/pages/UsersPage.tsx');
+    const customersPage = path.join(root, 'src/pages/CustomersPage.tsx');
+    const userCard = path.join(root, 'src/components/UserCard.tsx');
+    const originals = new Map([
+      [usersPage, readFileSync(usersPage, 'utf8')],
+      [customersPage, readFileSync(customersPage, 'utf8')],
+      [userCard, readFileSync(userCard, 'utf8')],
+    ]);
+
+    try {
+      await scanner.scan({ trigger: 'manual' });
+      const originalUsers = originals.get(usersPage)!;
+      const originalCustomers = originals.get(customersPage)!;
+      const originalCard = originals.get(userCard)!;
+      writeFileSync(usersPage, `// TODO: validar telefone\n${originalUsers}`, 'utf8');
+      writeFileSync(customersPage, `// TODO: paginar clientes\n${originalCustomers}`, 'utf8');
+      writeFileSync(userCard, `// FIXME: corrigir layout\n${originalCard}`, 'utf8');
+
+      architect.generate({
+        changedFiles: [
+          'src/pages/UsersPage.tsx',
+          'src/pages/CustomersPage.tsx',
+          'src/components/UserCard.tsx',
+        ],
+      });
+
+      const debts = listRoadmapItems(opened.db, project.id, { kind: 'debt' });
+      expect(debts).toHaveLength(2);
+
+      const pages = debts.find((item) => item.module === 'pages');
+      expect(pages?.sourceRef).toBe('todo:pages');
+      expect(pages?.priority).toBe('p3');
+      expect(pages?.evidence).toHaveLength(2);
+      expect(pages?.title).toContain('2 TODO');
+
+      const components = debts.find((item) => item.module === 'components');
+      expect(components?.priority).toBe('p2');
+      expect(components?.evidence[0]).toContain('FIXME src/components/UserCard.tsx:');
+    } finally {
+      for (const [file, content] of originals) writeFileSync(file, content, 'utf8');
       opened.close();
     }
   });

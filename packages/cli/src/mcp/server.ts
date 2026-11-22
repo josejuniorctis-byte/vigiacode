@@ -95,6 +95,10 @@ function projectStatus(context: McpContext) {
       rootPath: context.project.rootPath,
     },
     bindings: {
+      contractHealthPercent: summary.contractHealthPercent,
+      contractEvaluated: summary.contractEvaluated,
+      contractPending: summary.contractPending,
+      ok: summary.okItems,
       red: summary.red,
       yellow: summary.yellow,
       green: summary.green,
@@ -144,7 +148,7 @@ export function createMcpServer(context: McpContext): McpServer {
     {
       title: 'Status do VigiaCode',
       description:
-        'Resumo do projeto: contagens de amarrações (🔴/🟡/🟢), saúde simples e ponderada, cobertura por regra, perfil ativo e contagens do roadmap.',
+        'Resumo do projeto: saúde de contrato (métrica principal = 1 − pendências ponderadas/avaliados), itens ok (2 de 3 camadas), contagens 🔴/🟡/🟢, cobertura por regra, perfil ativo e contagens do roadmap.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },

@@ -125,6 +125,16 @@ export function BindingsPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard
+          label="Saúde de contrato"
+          value={`${counts?.contractHealthPercent ?? 100}%`}
+          hint={`${counts?.contractEvaluated ?? 0} avaliados · ${counts?.contractPending ?? 0} ponderadas`}
+        />
+        <StatCard
+          label="✓ ok (2 de 3)"
+          value={counts?.okItems ?? 0}
+          hint="terceira camada não se aplica"
+        />
+        <StatCard
           label="🔴 Vermelhas"
           value={counts?.red ?? 0}
           hint="quebras que impedem o fluxo"
@@ -132,17 +142,25 @@ export function BindingsPage() {
         <StatCard label="🟡 Amarelas" value={counts?.yellow ?? 0} hint="parciais ou em risco" />
         <StatCard label="🟢 Verdes" value={counts?.green ?? 0} hint="front + back + banco" />
         <StatCard
-          label="Saúde"
+          label="Ativas"
+          value={counts?.active ?? 0}
+          hint={`${counts?.resolved ?? 0} resolvida(s)`}
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard
+          label="Saúde simples (detalhe)"
           value={`${counts?.healthPercent ?? 100}%`}
-          hint={`${counts?.active ?? 0} ativa(s) · ${counts?.resolved ?? 0} resolvida(s)`}
+          hint="verdes / ativas"
         />
         <StatCard
-          label="Saúde ponderada"
+          label="Saúde ponderada (detalhe)"
           value={`${counts?.weightedHealthPercent ?? 100}%`}
           hint="amarela pesa 30% de uma vermelha"
         />
         <StatCard
-          label="Saúde de campo"
+          label="Saúde de campo (detalhe)"
           value={`${counts?.fieldHealthPercent ?? 100}%`}
           hint="R1–R3, sem ruído de endpoints"
         />
@@ -410,6 +428,7 @@ function MatrixLinkBadge({ row }: { row: MatrixRow }) {
       className: 'text-emerald-600 dark:text-emerald-400',
     },
     partial: { icon: '🟡', label: 'parcial', className: 'text-amber-600 dark:text-amber-300' },
+    ok: { icon: '✓', label: 'ok (2 de 3)', className: 'text-sky-600 dark:text-sky-300' },
     local: { icon: '⬜', label: 'só local', className: 'text-[var(--muted)]' },
     missing: { icon: '❌', label: 'faltando', className: 'text-rose-600 dark:text-rose-300' },
     link: { icon: '↗', label: 'falta amarrar', className: 'text-rose-600 dark:text-rose-300' },

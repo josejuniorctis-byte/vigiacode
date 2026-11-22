@@ -8,12 +8,13 @@ import type { VigiaCodeDatabase } from './client.js';
 /**
  * As migrations SQL são geradas pelo drizzle-kit em `packages/cli/drizzle/`.
  *
- * O caminho é resolvido a partir deste arquivo, então funciona tanto rodando do
- * source (src/db/migrate.ts → "../../drizzle") quanto do build
- * (dist/db/migrate.js → "../../drizzle").
+ * No monorepo (source), resolvemos `../../drizzle`; no pacote publicado, o
+ * build copia as migrations para `dist/drizzle` e resolvemos `../drizzle`.
  */
 export function migrationsFolder(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
+  const bundled = path.resolve(here, '../drizzle');
+  if (existsSync(path.join(bundled, 'meta', '_journal.json'))) return bundled;
   return path.resolve(here, '../../drizzle');
 }
 

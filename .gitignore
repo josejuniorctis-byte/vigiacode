@@ -19,6 +19,9 @@ build/
 coverage/
 .vitest/
 
+# Artefatos temporários de scan (revalidação e depuração)
+.scan-tmp/
+
 # Ambiente
 .env
 .env.*

@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Instalar o VigiaCode
         run: npm install -g vigiacode
@@ -50,7 +50,7 @@ jobs:
 Notas:
 
 - O pacote traz o dashboard embutido; o CI não precisa de build de front-end.
-- `better-sqlite3` usa binário pré-compilado no Node 20/22 em `ubuntu-latest`.
+- `better-sqlite3` usa binário pré-compilado no Node 22/24 em `ubuntu-latest`.
   Se o runner não tiver o prebuild, instale `build-essential` e `python3`.
 - Para guardar o histórico entre execuções, faça cache de `.vigiacode/`
   (opcional; o scan é incremental por hash de arquivo).

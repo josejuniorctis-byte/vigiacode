@@ -39,6 +39,7 @@ import {
 } from './db/index.js';
 import type { RoadmapKind, RoadmapPriority, RoadmapStatus } from './db/schema.js';
 import { logger } from './utils/logger.js';
+import { nodeVersionError } from './utils/runtime.js';
 import { VERSION } from './version.js';
 
 interface InitCliOptions {
@@ -489,6 +490,13 @@ Exemplos:
 }
 
 export async function main(argv: string[] = process.argv): Promise<void> {
+  const versionError = nodeVersionError();
+  if (versionError) {
+    process.stderr.write(`${versionError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   const program = createProgram();
 
   try {

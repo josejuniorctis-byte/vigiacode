@@ -1,6 +1,6 @@
 {
   "name": "vigiacode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "VigiaCode — rastreador de amarrações front/back/banco, roadmap vivo e servidor MCP para projetos desenvolvidos com agentes de IA.",
   "keywords": [
     "ai",
@@ -45,7 +45,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",

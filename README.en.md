@@ -4,7 +4,7 @@
 
 VigiaCode follows your project as it evolves: it records every change with a diff, summarizes what happened, detects **missing bindings** across frontend, backend and database, and turns the diagnosis into a **living roadmap** of next steps. Everything runs locally in a single npm package with the dashboard embedded.
 
-> **Status: 0.1.0 — Release (Stages 1–6).**
+> **Status: 0.1.1 — Release (Stages 1–6).**
 > `npx vigiacode start` serves the dashboard at `http://localhost:4317` with **contract health** as the main metric, the binding matrix (🔴/🟡/🟢/✓ ok), the Architect board and an MCP server so the agent can inspect the project before coding. npm packaging, Docker and CI are ready — see [RELEASE.md](RELEASE.md).
 
 ![VigiaCode dashboard — timeline with Architect next steps](docs/dashboard.png)
@@ -13,7 +13,7 @@ VigiaCode follows your project as it evolves: it records every change with a dif
 
 ## Installation
 
-Requirement: **Node.js 20 or 22**. The database uses `better-sqlite3`, which ships prebuilt binaries for common platforms. If your environment must compile it:
+Requirement: **Node.js 22 or 24**. Node 20 is no longer supported. The database uses `better-sqlite3`, which ships prebuilt binaries for common platforms. If your environment must compile it:
 
 | Platform | Requirements                                         |
 | -------- | ---------------------------------------------------- |
@@ -46,11 +46,11 @@ node packages/cli/dist/index.js start
 The image runs as non-root, mounts the project **read-only** and keeps VigiaCode state in its own volume:
 
 ```bash
-docker build -t vigiacode:0.1.0 .
+docker build -t vigiacode:0.1.1 .
 docker run --rm -p 4317:4317 \
   -v "$PWD:/project:ro" \
   -v vigiacode-state:/project/.vigiacode \
-  vigiacode:0.1.0
+  vigiacode:0.1.1
 ```
 
 Or `docker compose up --build`. On first run the entrypoint executes `vigiacode init --yes --no-gitignore`, then `vigiacode start --host 0.0.0.0`. AI keys come from environment variables (`-e OPENAI_API_KEY=...`), never from the image.
@@ -79,12 +79,12 @@ A ready-to-paste GitHub Actions workflow is in [docs/ci.md](docs/ci.md).
 - **The Architect**: deterministic living roadmap from 🔴 bindings, `TODO/FIXME/HACK` debt **grouped by module**, and hot files without tests; checklists with auto-verification, evidence-based auto-close and optional AI plans.
 - **MCP server**: `vigiacode mcp` over stdio with tools, resources and a prompt for Cursor, Claude Code, Qoder and Trae.
 - **React 19 + Vite 7 + Tailwind 4 dashboard**: timeline, evolution agenda, files, Bindings and Architect pages with SSE, settings and light/dark themes.
-- **Packaging and delivery**: `npm pack`, clean install outside the monorepo, multi-stage Dockerfile, compose file, CI (Ubuntu/Windows/macOS × Node 20/22) and a tag-based release workflow.
+- **Packaging and delivery**: `npm pack`, clean install outside the monorepo, multi-stage Dockerfile, compose file, CI (Ubuntu/Windows/macOS × Node 22/24) and a tag-based release workflow.
 - **Docs**: README pt/en, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG, issue/PR templates and docs/ci.md.
 - Commands `vigiacode init`, `start`, `log`, `ai test`, `ai use`, `bindings scan/list/matrix`, `architect generate/list/plan/done` and `mcp`, with messages in Portuguese.
 - ESLint + Prettier + **184 tests** (166 CLI + 18 web) using **Vitest** and **Testing Library**.
 
-**Out of scope for 0.1.0 (public roadmap):** historical architecture reports, PostgreSQL support and framework-specific rules.
+**Out of scope for 0.1.1 (public roadmap):** historical architecture reports, PostgreSQL support and framework-specific rules.
 
 ---
 
@@ -362,7 +362,7 @@ claude mcp add vigiacode -- npx -y vigiacode mcp --project /path/to/your-project
 
 | Layer    | Choice                                                                       |
 | -------- | ---------------------------------------------------------------------------- |
-| Runtime  | Node.js 20+ (ESM)                                                            |
+| Runtime  | Node.js 22+ (ESM)                                                            |
 | Monorepo | pnpm workspaces                                                              |
 | CLI      | TypeScript strict, Commander                                                 |
 | API      | Fastify 5 + SSE                                                              |
@@ -423,7 +423,7 @@ Yes, but without diffs. Events and heuristic summaries are still recorded; commi
 No. The only write is a roadmap item update.
 
 **Node 26?**
-It may work, but 0.1.0 does not support it: the `better-sqlite3` prebuilt binary may be missing. Use Node 20 or 22.
+Node 22 or newer is required. Newer versions may work, but CI covers Node 22 and 24.
 
 **How can I contribute?**
 See [CONTRIBUTING.md](CONTRIBUTING.md). For security issues, use [SECURITY.md](SECURITY.md).

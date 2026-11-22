@@ -8,7 +8,7 @@ Obrigado por ajudar o VigiaCode. O projeto é um monorepo pnpm com duas partes:
 
 ## Ambiente
 
-Pré-requisitos: **Node 20 ou 22** e **pnpm 10+**. O `better-sqlite3` precisa de
+Pré-requisitos: **Node 22 ou 24** e **pnpm 10+**. O `better-sqlite3` precisa de
 um binário nativo — veja os requisitos por sistema em
 [RELEASE.md](RELEASE.md#2-requisitos-do-better-sqlite3).
 

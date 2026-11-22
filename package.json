@@ -1,6 +1,6 @@
 {
   "name": "vigiacode-monorepo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "VigiaCode — AI Dev Companion e rastreador de arquitetura para projetos desenvolvidos com agentes de IA.",
@@ -9,7 +9,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "vigiacode": "node packages/cli/dist/index.js",

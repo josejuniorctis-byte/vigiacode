@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ─── build ──────────────────────────────────────────────────────────────────
-# Node 20 é a versão mínima suportada pelo pacote (engines >=20). O build roda
+# Node 22 é a versão mínima suportada pelo pacote (engines >=22). O build roda
 # com pnpm e embute o dashboard em packages/cli/dist/web antes do npm pack.
-FROM node:20-slim AS build
+FROM node:22-slim AS build
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -21,7 +21,7 @@ RUN pnpm build
 RUN mkdir -p /dist && cd packages/cli && npm pack --pack-destination /dist
 
 # ─── runtime ────────────────────────────────────────────────────────────────
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 
 ENV NODE_ENV=production
 

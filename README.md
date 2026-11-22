@@ -4,7 +4,7 @@
 
 O VigiaCode acompanha o seu projeto enquanto o código evolui: registra cada mudança com o diff, resume o que aconteceu, detecta **amarrações pendentes** entre front-end, back-end e banco e transforma o diagnóstico num **roadmap vivo** de próximos passos. Tudo roda localmente, em um único pacote npm com dashboard embutido.
 
-> **Status: 0.1.0 — Lançamento (Etapas 1–6).**
+> **Status: 0.1.1 — Lançamento (Etapas 1–6).**
 > `npx vigiacode start` sobe o dashboard em `http://localhost:4317` com a **saúde de contrato** como métrica principal, o mapa de amarrações (🔴/🟡/🟢/✓ ok), o quadro do Arquiteto e o servidor MCP para o agente consultar o projeto antes de codar. Publicação no npm, Docker e CI estão prontos — veja [RELEASE.md](RELEASE.md).
 
 ![Dashboard do VigiaCode — linha do tempo com próximos passos do Arquiteto](docs/dashboard.png)
@@ -13,7 +13,7 @@ O VigiaCode acompanha o seu projeto enquanto o código evolui: registra cada mud
 
 ## Instalação
 
-Pré-requisitos: **Node.js 20 ou 22**. O banco usa `better-sqlite3`, que tem binário
+Pré-requisitos: **Node.js 22 ou 24**. Node 20 está fora de suporte. O banco usa `better-sqlite3`, que tem binário
 pré-compilado para as plataformas comuns; se o seu ambiente precisar compilar:
 
 | Plataforma | Requisitos                                          |
@@ -50,11 +50,11 @@ A imagem roda sem privilégios, com o projeto montado **somente leitura** e o es
 do VigiaCode em um volume próprio:
 
 ```bash
-docker build -t vigiacode:0.1.0 .
+docker build -t vigiacode:0.1.1 .
 docker run --rm -p 4317:4317 \
   -v "$PWD:/project:ro" \
   -v vigiacode-state:/project/.vigiacode \
-  vigiacode:0.1.0
+  vigiacode:0.1.1
 ```
 
 Ou `docker compose up --build`. Na primeira execução o entrypoint roda
@@ -86,12 +86,12 @@ Há um workflow pronto para colar no seu repositório em [docs/ci.md](docs/ci.md
 - **O Arquiteto**: roadmap dinâmico no banco, com amarrações 🔴, débitos `TODO/FIXME/HACK` **agrupados por módulo** e arquivos quentes sem teste; checklist com auto-verificação, fechamento automático com evidência e plano opcional com IA.
 - **Servidor MCP**: `vigiacode mcp` via stdio com ferramentas, recursos e prompt prontos para Cursor, Claude Code, Qoder e Trae.
 - **Dashboard em React 19 + Vite 7 + Tailwind 4** com tema claro/escuro, linha do tempo, agenda de evolução, arquivos, telas de **Amarrações** e **Arquiteto** com SSE e configurações.
-- **Empacotamento e distribuição**: `npm pack`, instalação limpa fora do monorepo, Dockerfile multi-stage, `docker-compose.yml`, workflows de CI (Ubuntu/Windows/macOS × Node 20/22) e de Release por tag.
+- **Empacotamento e distribuição**: `npm pack`, instalação limpa fora do monorepo, Dockerfile multi-stage, `docker-compose.yml`, workflows de CI (Ubuntu/Windows/macOS × Node 22/24) e de Release por tag.
 - **Documentação**: README pt/en, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG, templates de issue/PR e docs/ci.md.
 - Comandos `vigiacode init`, `start`, `log`, `ai test`, `ai use`, `bindings scan/list/matrix`, `architect generate/list/plan/done` e `mcp`, com mensagens em português.
 - ESLint + Prettier + **184 testes** (166 no CLI + 18 no web) com **Vitest** e **Testing Library**.
 
-**Fora do escopo da 0.1.0 (roadmap público):** relatórios históricos de arquitetura, suporte a PostgreSQL e regras específicas por framework.
+**Fora do escopo da 0.1.1 (roadmap público):** relatórios históricos de arquitetura, suporte a PostgreSQL e regras específicas por framework.
 
 ---
 
@@ -590,7 +590,7 @@ claude mcp add vigiacode -- node /caminho/para/vigiacode/packages/cli/dist/index
 
 | Camada    | Escolha                                                                      |
 | --------- | ---------------------------------------------------------------------------- |
-| Runtime   | Node.js 20+ (ESM)                                                            |
+| Runtime   | Node.js 22+ (ESM)                                                            |
 | Monorepo  | pnpm workspaces                                                              |
 | CLI       | TypeScript strict, Commander                                                 |
 | API       | Fastify 5 + SSE                                                              |
@@ -650,7 +650,7 @@ vigiacode/
 
 ## Como rodar localmente
 
-Pré-requisitos: **Node.js 20+** e **pnpm 10+**.
+Pré-requisitos: **Node.js 22+** e **pnpm 10+**.
 
 ```bash
 # 1. instalar dependências do monorepo
@@ -696,7 +696,7 @@ npx vigiacode start
 
 ```bash
 curl http://localhost:4317/api/health
-# {"status":"ok","version":"0.1.0"}
+# {"status":"ok","version":"0.1.1"}
 curl http://localhost:4317/api/ai/status
 
 # teste o provider de IA configurado
@@ -858,7 +858,7 @@ vigiacode mcp --project /caminho/do/projeto
 
 | Rota                             | Resposta                                                                                         |
 | -------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `GET /api/health`                | `{ "status": "ok", "version": "0.1.0" }`                                                         |
+| `GET /api/health`                | `{ "status": "ok", "version": "0.1.1" }`                                                         |
 | `GET /api/project`               | projeto registrado + branch/commit atuais                                                        |
 | `GET /api/events`                | `{ "events": [...] }` — `?limit` (1–200), `?before`, `?layer`, `?q` (texto), `?from`/`?to` (ISO) |
 | `GET /api/events/:id`            | evento completo, incluindo `diff` e `diffTruncated`                                              |
@@ -1063,8 +1063,8 @@ Não. Ele lê o projeto e o banco local do VigiaCode. A única escrita é a
 atualização de um item do roadmap.
 
 **Node 26?**
-Pode funcionar, mas não é suportado na 0.1.0: o binário pré-compilado do
-`better-sqlite3` pode não existir. Use Node 20 ou 22.
+Requer Node 22 ou superior. Versões mais novas podem funcionar, mas o CI cobre
+Node 22 e 24.
 
 **Como contribuir?**
 Veja [CONTRIBUTING.md](CONTRIBUTING.md). Para falhas de segurança, use

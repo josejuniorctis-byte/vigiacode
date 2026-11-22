@@ -1,4 +1,4 @@
-# Release 0.1.0 — VigiaCode
+# Release 0.1.1 — VigiaCode
 
 Checklist e comandos para publicar o pacote `vigiacode` e criar o repositório
 no GitHub. Nada aqui é executado automaticamente: rode na ordem, conferindo cada
@@ -15,10 +15,10 @@ pnpm test
 pnpm format:check
 
 cd packages/cli
-npm pack                       # gera vigiacode-0.1.0.tgz
+npm pack                       # gera vigiacode-0.1.1.tgz
 ```
 
-O tarball da 0.1.0 tem ~360 KB e 293 arquivos, incluindo:
+O tarball da 0.1.1 tem ~360 KB, incluindo:
 
 - `dist/` da CLI (ESM + `.d.ts`);
 - `dist/drizzle/` com as migrations `0000`–`0004`;
@@ -29,10 +29,10 @@ Teste numa pasta fora do monorepo:
 
 ```bash
 mkdir -p /tmp/vigiacode-test/app /tmp/vigiacode-test/project
-cp vigiacode-0.1.0.tgz /tmp/vigiacode-test/
+cp vigiacode-0.1.1.tgz /tmp/vigiacode-test/
 cd /tmp/vigiacode-test/app
 npm init -y
-npm install ../vigiacode-0.1.0.tgz
+npm install ../vigiacode-0.1.1.tgz
 cd ../project
 ../app/node_modules/.bin/vigiacode init --yes --no-gitignore
 ../app/node_modules/.bin/vigiacode bindings scan --fail-on none
@@ -48,13 +48,13 @@ o npm compila na instalação e precisa de:
 
 | Plataforma | Requisitos                                                                  |
 | ---------- | --------------------------------------------------------------------------- |
-| Windows    | Node 20/22, Visual Studio Build Tools (C++ Desktop) e Python 3              |
+| Windows    | Node 22/24, Visual Studio Build Tools (C++ Desktop) e Python 3              |
 | macOS      | Xcode Command Line Tools (`xcode-select --install`)                         |
-| Linux      | `build-essential`, `python3` e `make` (ex.: `node:20-slim` + esses pacotes) |
+| Linux      | `build-essential`, `python3` e `make` (ex.: `node:22-slim` + esses pacotes) |
 
 Se a carga falhar, o VigiaCode mostra uma mensagem em português com o detalhe e
-sugere `npm rebuild better-sqlite3`. Node muito novo (ex.: 26) pode não ter
-prebuild disponível; nesse caso use Node 20 ou 22.
+sugere `npm rebuild better-sqlite3`. Node 20 está fora de suporte: use Node 22
+ou 24, que têm prebuild disponível.
 
 ## 3. Criar o repositório e enviar o código
 
@@ -63,7 +63,7 @@ O repositório **não é criado nem recebe push automaticamente**. Quando quiser
 ```bash
 git remote add origin https://github.com/josejuniorctis-byte/vigiacode.git
 git push -u origin main
-git tag v0.1.0
+git tag v0.1.1
 git push --tags
 ```
 
@@ -101,8 +101,8 @@ git tag v<versao> && git push --tags
 Com o workflow `.github/workflows/release.yml` ativo, basta empurrar a tag:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 O workflow roda build + `npm pack`, anexa o `.tgz` ao Release e **só publica no
@@ -111,17 +111,17 @@ Actions). Sem o secret, o Release é criado com o tarball anexado.
 
 ## 6. Docker
 
-A imagem multi-stage usa `node:20-slim`, roda como usuário sem privilégios
+A imagem multi-stage usa `node:22-slim`, roda como usuário sem privilégios
 (uid 10001), expõe a porta **4317** e monta o projeto em `/project:ro`, com um
 volume próprio em `/project/.vigiacode`.
 
 ```bash
-docker build -t vigiacode:0.1.0 .
+docker build -t vigiacode:0.1.1 .
 docker volume create vigiacode-state
 docker run --rm -p 4317:4317 \
   -v "$PWD:/project:ro" \
   -v vigiacode-state:/project/.vigiacode \
-  vigiacode:0.1.0
+  vigiacode:0.1.1
 ```
 
 Ou:
@@ -137,5 +137,5 @@ na imagem ou no compose versionado.
 
 > O build da imagem **não foi executado nesta máquina** porque o daemon do
 > Docker Desktop não estava ativo. O Dockerfile foi escrito para o caminho
-> padrão (pnpm 10 + Node 20 + prebuild do better-sqlite3). Rode
+> padrão (pnpm 10 + Node 22 + prebuild do better-sqlite3). Rode
 > `docker build -t vigiacode:test .` antes de publicar a imagem.

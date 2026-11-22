@@ -44,7 +44,7 @@ npx vigiacode bindings scan --fail-on red
 
 ## Requisitos
 
-- Node.js 20 ou 22.
+- Node.js 22 ou 24 (Node 20 está fora de suporte).
 - `better-sqlite3` compila um binário nativo. Windows: Visual Studio Build
   Tools + Python 3. macOS: `xcode-select --install`. Linux: `build-essential`
   e `python3`. Se o binário pré-compilado falhar, rode `npm rebuild better-sqlite3`.

@@ -4,6 +4,16 @@ Todas as mudanças relevantes estão documentadas aqui. Formato baseado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e versionamento
 [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.1.1] — 2026-11-22
+
+### Mudanças
+
+- Requer **Node 22+** (Node 20 está fora de suporte). `engines.node` passou a
+  `>=22` e a CLI mostra uma mensagem amigável ao rodar em versões anteriores.
+- Matriz de CI agora cobre Node 22 e 24 em Ubuntu, Windows e macOS; o workflow
+  de Release roda em Node 22.
+- Imagem Docker atualizada para `node:22-slim`.
+
 ## [0.1.0] — 2026-11-22
 
 Primeira versão pública. Reúne as Etapas 1–6 do roadmap em um único pacote npm
@@ -80,4 +90,5 @@ com dashboard embutido, Docker, CI e documentação.
   tag (anexa `.tgz`; publica no npm só com `NPM_TOKEN`).
 - Varredura de segredos no repositório e no histórico do Git.
 
+[0.1.1]: https://github.com/josejuniorctis-byte/vigiacode/releases/tag/v0.1.1
 [0.1.0]: https://github.com/josejuniorctis-byte/vigiacode/releases/tag/v0.1.0

@@ -24,9 +24,11 @@ import type {
   BindingsFilters,
   MatrixCell,
   MatrixRow,
+  RuleCoverage,
 } from '../types';
 import { EMPTY_BINDING_FILTERS } from '../types';
 import { formatRelativeTime, pluralize } from '../utils/format';
+import { moduleOfBinding } from '../utils/module';
 
 const STATUS_ICON: Record<BindingStatus, string> = {
   red: '🔴',
@@ -56,9 +58,11 @@ export function BindingsPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [explanation, setExplanation] = useState<BindingExplanation | null>(null);
+  const [groupBy, setGroupBy] = useState<'none' | 'module' | 'rule'>('none');
 
   const rows = bindings.data?.bindings ?? [];
   const counts = summary.data;
+  const groups = useMemo(() => groupBindings(rows, groupBy), [rows, groupBy]);
 
   const onExplain = (binding: Binding): void => {
     setSelectedId(binding.id);
@@ -67,6 +71,19 @@ export function BindingsPage() {
       onSuccess: (result) => setExplanation(result),
     });
   };
+
+  const renderRow = (binding: Binding) => (
+    <BindingRow
+      key={binding.id}
+      binding={binding}
+      selected={selectedId === binding.id}
+      explanation={selectedId === binding.id ? explanation : null}
+      explaining={explain.isPending && selectedId === binding.id}
+      accepting={accept.isPending}
+      onExplain={() => onExplain(binding)}
+      onAccept={() => accept.mutate(binding.id)}
+    />
+  );
 
   return (
     <div className="space-y-5">
@@ -106,7 +123,7 @@ export function BindingsPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard
           label="🔴 Vermelhas"
           value={counts?.red ?? 0}
@@ -119,7 +136,21 @@ export function BindingsPage() {
           value={`${counts?.healthPercent ?? 100}%`}
           hint={`${counts?.active ?? 0} ativa(s) · ${counts?.resolved ?? 0} resolvida(s)`}
         />
+        <StatCard
+          label="Saúde ponderada"
+          value={`${counts?.weightedHealthPercent ?? 100}%`}
+          hint="amarela pesa 30% de uma vermelha"
+        />
+        <StatCard
+          label="Saúde de campo"
+          value={`${counts?.fieldHealthPercent ?? 100}%`}
+          hint="R1–R3, sem ruído de endpoints"
+        />
       </div>
+
+      {counts && counts.coverage.length > 0 ? (
+        <CoveragePanel coverage={counts.coverage} profile={counts.profile} />
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <section className="panel overflow-hidden">
@@ -214,6 +245,16 @@ export function BindingsPage() {
               ))}
               <option value="GREEN">🟢 GREEN</option>
             </select>
+            <select
+              className="input"
+              aria-label="Agrupar amarrações"
+              value={groupBy}
+              onChange={(event) => setGroupBy(event.target.value as 'none' | 'module' | 'rule')}
+            >
+              <option value="none">Sem agrupar</option>
+              <option value="module">Agrupar por módulo</option>
+              <option value="rule">Agrupar por regra</option>
+            </select>
           </div>
         </div>
 
@@ -274,19 +315,27 @@ export function BindingsPage() {
               </button>
             }
           />
+        ) : groupBy === 'none' ? (
+          <div className="space-y-2">{rows.map(renderRow)}</div>
         ) : (
-          <div className="space-y-2">
-            {rows.map((binding) => (
-              <BindingRow
-                key={binding.id}
-                binding={binding}
-                selected={selectedId === binding.id}
-                explanation={selectedId === binding.id ? explanation : null}
-                explaining={explain.isPending && selectedId === binding.id}
-                accepting={accept.isPending}
-                onExplain={() => onExplain(binding)}
-                onAccept={() => accept.mutate(binding.id)}
-              />
+          <div className="space-y-3">
+            {groups.map((group) => (
+              <details key={group.key} className="panel overflow-hidden" open>
+                <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-3 text-sm font-semibold text-[var(--text)]">
+                  <span>{groupBy === 'module' ? `📁 ${group.label}` : `⚖ ${group.label}`}</span>
+                  <span className="rounded-full bg-[var(--surface-3)] px-2 py-0.5 text-[10px] font-normal text-[var(--muted)]">
+                    {group.rows.length}
+                  </span>
+                  <span className="ml-auto flex items-center gap-2 text-[11px] font-normal">
+                    {group.red > 0 ? <span>🔴 {group.red}</span> : null}
+                    {group.yellow > 0 ? <span>🟡 {group.yellow}</span> : null}
+                    {group.green > 0 ? <span>🟢 {group.green}</span> : null}
+                  </span>
+                </summary>
+                <div className="space-y-2 border-t border-[var(--border)] p-3">
+                  {group.rows.map(renderRow)}
+                </div>
+              </details>
             ))}
           </div>
         )}
@@ -555,4 +604,90 @@ function parseRef(value: string): { file: string; line: string | null } {
 
 function layerLabel(layer: BindingLayerName): string {
   return layer === 'frontend' ? 'front-end' : layer === 'backend' ? 'back-end' : 'banco';
+}
+
+interface BindingGroup {
+  key: string;
+  label: string;
+  rows: Binding[];
+  red: number;
+  yellow: number;
+  green: number;
+}
+
+function groupBindings(rows: Binding[], mode: 'none' | 'module' | 'rule'): BindingGroup[] {
+  if (mode === 'none') return [];
+  const map = new Map<string, BindingGroup>();
+  for (const binding of rows) {
+    const key =
+      mode === 'module'
+        ? moduleOfBinding([binding.frontRef, binding.backRef, binding.dbRef])
+        : binding.ruleId;
+    const group = map.get(key) ?? { key, label: key, rows: [], red: 0, yellow: 0, green: 0 };
+    group.rows.push(binding);
+    group[binding.status] += 1;
+    map.set(key, group);
+  }
+  return [...map.values()].sort(
+    (left, right) =>
+      right.red - left.red ||
+      right.yellow - left.yellow ||
+      right.rows.length - left.rows.length ||
+      left.label.localeCompare(right.label),
+  );
+}
+
+function CoveragePanel({
+  coverage,
+  profile,
+}: {
+  coverage: RuleCoverage[];
+  profile: string | null;
+}) {
+  return (
+    <section className="panel overflow-hidden" data-testid="coverage-panel">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+        <h2 className="text-sm font-semibold text-[var(--text)]">Cobertura por regra</h2>
+        <span className="text-[11px] text-[var(--muted)]">
+          {profile ? `perfil ${profile}` : 'perfil —'} · avaliados × ignorados no último scan
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[34rem] text-left text-xs">
+          <thead className="bg-[var(--surface-2)] text-[10px] uppercase tracking-wider text-[var(--muted)]">
+            <tr>
+              <th className="px-4 py-2 font-semibold">Regra</th>
+              <th className="px-2 py-2 text-right font-semibold">Avaliados</th>
+              <th className="px-2 py-2 text-right font-semibold">Ignorados</th>
+              <th className="px-2 py-2 text-right font-semibold">🔴</th>
+              <th className="px-2 py-2 text-right font-semibold">🟡</th>
+              <th className="px-2 py-2 text-right font-semibold">🟢</th>
+              <th className="px-4 py-2 font-semibold">Observação</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border)]">
+            {coverage.map((rule) => (
+              <tr key={rule.ruleId}>
+                <td className="px-4 py-2 font-mono text-[var(--text)]">{rule.ruleId}</td>
+                <td className="px-2 py-2 text-right text-[var(--text)]">{rule.evaluated}</td>
+                <td className="px-2 py-2 text-right text-[var(--muted)]">{rule.ignored}</td>
+                <td className="px-2 py-2 text-right text-rose-600 dark:text-rose-300">
+                  {rule.red}
+                </td>
+                <td className="px-2 py-2 text-right text-amber-600 dark:text-amber-300">
+                  {rule.yellow}
+                </td>
+                <td className="px-2 py-2 text-right text-emerald-600 dark:text-emerald-300">
+                  {rule.green}
+                </td>
+                <td className="px-4 py-2 text-[var(--muted)]">
+                  {rule.note ?? (rule.enabled ? '—' : 'desligada')}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }

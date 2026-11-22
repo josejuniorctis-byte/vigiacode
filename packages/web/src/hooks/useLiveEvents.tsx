@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { BindingsEvent, ChangeEvent } from '../types';
+import type { BindingsEvent, ChangeEvent, RoadmapEvent } from '../types';
 import { useEventStream, type StreamStatus } from './useEventStream';
 
 interface LiveEventsContextValue {
@@ -16,6 +16,7 @@ interface LiveEventsContextValue {
   events: Record<string, ChangeEvent>;
   recentBatchIds: Set<string>;
   latestBindings: BindingsEvent | null;
+  latestRoadmap: RoadmapEvent | null;
 }
 
 const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
@@ -24,6 +25,7 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<Record<string, ChangeEvent>>({});
   const [recentBatchIds, setRecentBatchIds] = useState<Set<string>>(() => new Set());
   const [latestBindings, setLatestBindings] = useState<BindingsEvent | null>(null);
+  const [latestRoadmap, setLatestRoadmap] = useState<RoadmapEvent | null>(null);
   const queryClient = useQueryClient();
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -61,6 +63,10 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: ['bindings-scans'] });
       void queryClient.invalidateQueries({ queryKey: ['bindings'] });
     },
+    onRoadmap: (payload) => {
+      setLatestRoadmap(payload);
+      void queryClient.invalidateQueries({ queryKey: ['roadmap'] });
+    },
   });
 
   useEffect(() => {
@@ -72,8 +78,8 @@ export function LiveEventsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ status, events, recentBatchIds, latestBindings }),
-    [status, events, recentBatchIds, latestBindings],
+    () => ({ status, events, recentBatchIds, latestBindings, latestRoadmap }),
+    [status, events, recentBatchIds, latestBindings, latestRoadmap],
   );
 
   return <LiveEventsContext.Provider value={value}>{children}</LiveEventsContext.Provider>;

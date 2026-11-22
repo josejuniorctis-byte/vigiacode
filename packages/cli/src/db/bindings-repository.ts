@@ -1,9 +1,12 @@
 import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { matchesAcceptedFalsePositive } from '../bindings/accept.js';
+import type { RuleCoverage } from '../bindings/types.js';
 import type { VigiaCodeDatabase } from './client.js';
 import {
   bindingFileCache,
   bindingScans,
   bindings,
+  projects,
   type Binding,
   type BindingFileCache,
   type BindingLayer,
@@ -231,9 +234,23 @@ export interface BindingSummary {
   resolved: number;
   accepted: number;
   healthPercent: number;
+  /** saudáveis / (saudáveis + vermelhas + amarelas×0,3). */
+  weightedHealthPercent: number;
+  /** mesma fórmula, restrita às regras de campo (R1–R3). */
+  fieldHealthPercent: number;
   byRule: BindingRuleCount[];
   byLayer: BindingLayerCount[];
+  /** Cobertura por regra congelada no último scan. */
+  coverage: RuleCoverage[];
+  profile: string | null;
   lastScan: BindingScan | null;
+}
+
+/** Saúde ponderada: amarelas contam como 30% de um problema. */
+export function weightedHealth(green: number, red: number, yellow: number): number {
+  const denominator = green + red + yellow * 0.3;
+  if (denominator === 0) return 100;
+  return Math.round((green / denominator) * 100);
 }
 
 export function summarizeBindings(
@@ -248,6 +265,9 @@ export function summarizeBindings(
   let green = 0;
   let resolved = 0;
   let accepted = 0;
+  let fieldGreen = 0;
+  let fieldRed = 0;
+  let fieldYellow = 0;
   const byRule = new Map<string, BindingRuleCount>();
   const byLayer = new Map<BindingLayer, BindingLayerCount>();
 
@@ -263,6 +283,12 @@ export function summarizeBindings(
     else if (row.status === 'yellow') yellow += 1;
     else green += 1;
 
+    if (row.ruleId === 'R1' || row.ruleId === 'R2' || row.ruleId === 'R3') {
+      if (row.status === 'red') fieldRed += 1;
+      else if (row.status === 'yellow') fieldYellow += 1;
+      else fieldGreen += 1;
+    }
+
     const rule = byRule.get(row.ruleId) ?? { ruleId: row.ruleId, red: 0, yellow: 0, green: 0 };
     rule[row.status] += 1;
     byRule.set(row.ruleId, rule);
@@ -272,6 +298,7 @@ export function summarizeBindings(
     byLayer.set(row.layer, layer);
   }
 
+  const coverage = parseCoverage(lastScan?.coverageJson ?? null);
   const active = red + yellow + green;
   return {
     red,
@@ -282,10 +309,47 @@ export function summarizeBindings(
     resolved,
     accepted,
     healthPercent: active === 0 ? 100 : Math.round((green / active) * 100),
+    weightedHealthPercent: weightedHealth(green, red, yellow),
+    fieldHealthPercent: weightedHealth(fieldGreen, fieldRed, fieldYellow),
     byRule: [...byRule.values()].sort((left, right) => left.ruleId.localeCompare(right.ruleId)),
     byLayer: [...byLayer.values()].sort((left, right) => left.layer.localeCompare(right.layer)),
+    coverage: coverage.rules,
+    profile: coverage.profile,
     lastScan,
   };
+}
+
+function parseCoverage(raw: string | null): { rules: RuleCoverage[]; profile: string | null } {
+  if (!raw) return { rules: [], profile: null };
+  try {
+    const parsed = JSON.parse(raw) as { rules?: RuleCoverage[]; profile?: string };
+    return {
+      rules: Array.isArray(parsed.rules) ? parsed.rules : [],
+      profile: typeof parsed.profile === 'string' ? parsed.profile : null,
+    };
+  } catch {
+    return { rules: [], profile: null };
+  }
+}
+
+/**
+ * Sincroniza a coluna derivada `accepted` com a lista do config.json.
+ * A fonte de verdade é sempre o config (versionável).
+ */
+export function syncAcceptedBindingFlags(
+  db: VigiaCodeDatabase,
+  projectId: string,
+  patterns: readonly string[],
+): number {
+  const rows = db.select().from(bindings).where(eq(bindings.projectId, projectId)).all();
+  let changed = 0;
+  for (const row of rows) {
+    const accepted = matchesAcceptedFalsePositive(patterns, row);
+    if (row.accepted === accepted) continue;
+    db.update(bindings).set({ accepted }).where(eq(bindings.id, row.id)).run();
+    changed += 1;
+  }
+  return changed;
 }
 
 export interface InsertBindingScanInput {
@@ -322,6 +386,7 @@ export interface FinishBindingScanInput {
   created: number;
   resolved: number;
   matrixJson?: string | null;
+  coverageJson?: string | null;
   error?: string | null;
   finishedAt?: string;
 }
@@ -342,6 +407,7 @@ export function finishBindingScan(
       createdCount: input.created,
       resolvedCount: input.resolved,
       matrixJson: input.matrixJson ?? null,
+      coverageJson: input.coverageJson ?? null,
       error: input.error ?? null,
     })
     .where(eq(bindingScans.id, scanId))
@@ -434,6 +500,18 @@ export function deleteBindingFileCache(
 
 export function clearBindingFileCache(db: VigiaCodeDatabase, projectId: string): void {
   db.delete(bindingFileCache).where(eq(bindingFileCache.projectId, projectId)).run();
+}
+
+/** Marca/limpa o rescan completo obrigatório do projeto. */
+export function setBindingsRescanRequired(
+  db: VigiaCodeDatabase,
+  projectId: string,
+  required: boolean,
+): void {
+  db.update(projects)
+    .set({ bindingsRescanRequired: required })
+    .where(eq(projects.id, projectId))
+    .run();
 }
 
 export function clampBindingLimit(limit: number | undefined, fallback = 200): number {

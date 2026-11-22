@@ -114,3 +114,134 @@ Amostra estratificada: 3 🔴 + 7 R3 + 5 R5 + 5 R6. Cada item foi conferido cont
 - `R3`: compara apenas entidades mapeadas por ORM; parser SQL entende `ADD COLUMN IF NOT EXISTS` em listas; JPA ignora constantes `static`, `@Transient` e coleções.
 - Cache: `binding_file_cache` ganhou versão de extractor para invalidar extrações antigas após upgrade.
 - Defaults: testes, `target`, `dist`, `__mocks__`, `*.test.*`/`*.spec.*` e bundles com hash são ignorados.
+
+## Etapa 5 — revalidação (2026-11-22)
+
+Mesmo repositório e mesmo modo somente leitura da Etapa 4: apenas `.vigiacode/` foi tocada, com `--no-gitignore`; nenhum banco ou API do SythaxSystem foi iniciado. O banco local da Etapa 4 foi migrado em cima (migrations `0003_fixes.sql` e `0004_architect.sql`), sem apagar dados.
+
+### Antes e depois
+
+| Métrica                           | Etapa 4       | Etapa 5 (balanced)              |
+| --------------------------------- | ------------- | ------------------------------- |
+| Arquivos analisados               | 2.589         | 2.589                           |
+| 🔴 / 🟡 / 🟢                      | 3 / 1.005 / 0 | 3 / 1.005 / 0                   |
+| Saúde simples                     | 0%            | 0%                              |
+| Saúde ponderada (`V/(V+R+A×0,3)`) | não existia   | 0%                              |
+| Saúde de campo (R1–R3)            | não existia   | 0%                              |
+| Cobertura por regra               | não existia   | sim (tabela abaixo)             |
+| Perfil aplicado                   | não existia   | `balanced`                      |
+| Scan completo (cache frio)        | 88,3 s        | 34,3 s                          |
+| Scans incrementais                | 15–22 s       | 12,8–17,2 s                     |
+| Itens no roadmap                  | não existia   | 153 (2 binding p1, 151 debt p2) |
+
+As contagens não mudaram porque as correções da Etapa 5 foram de robustez (dedupe, migração, cobertura, roadmap) e não de extração. Os tempos caíram porque o cache por hash/extractor já estava quente depois da revalidação da Etapa 4.
+
+Perfis medidos no mesmo projeto:
+
+| Perfil     | 🔴 / 🟡 / 🟢  | Observação                                                                                        |
+| ---------- | ------------- | ------------------------------------------------------------------------------------------------- |
+| `strict`   | 3 / 1.013 / 0 | R10 liga e adiciona 8 amarelas de métodos HTTP sem rota declarada.                                |
+| `balanced` | 3 / 1.005 / 0 | default; R9/R10 desligadas.                                                                       |
+| `lenient`  | 3 / 1.005 / 0 | R5/R6 continuam ligadas: o front importa cliente HTTP tipado, então o gate do perfil não dispara. |
+
+O resultado do `lenient` é esperado: o perfil só desliga R5/R6 quando **não** há cliente HTTP tipado (`axios`/`ky`/`got`/`superagent`); o SythaxSystem tem imports desse tipo, logo o perfil se comporta como `balanced`. Não é um bug, é o gate projetado.
+
+### Cobertura por regra
+
+| Regra | Avaliados | Ignorados |  🔴 |  🟡 | Nota                                       |
+| ----- | --------: | --------: | --: | --: | ------------------------------------------ |
+| R1    |         0 |       369 |   0 |   0 | front sem formulários/payloads detectáveis |
+| R2    |        99 |     4.112 |   3 |   0 | DTO × coluna                               |
+| R3    |     4.485 |       576 |   0 |  83 | entidade × migration                       |
+| R4    |        62 |         8 |   0 |   0 | —                                          |
+| R5    |       938 |         7 |   0 | 875 | endpoints sem consumidor                   |
+| R6    |        67 |         0 |   0 |  47 | entidade sem tela                          |
+| R7    |         3 |       168 |   0 |   0 | —                                          |
+| R8    |         0 |       145 |   0 |   0 | —                                          |
+| R9    |         0 |         0 |   0 |   0 | desligada em `balanced`                    |
+| R10   |         0 |         0 |   0 |   0 | desligada em `balanced`                    |
+
+A cobertura deixa explícito por que R5 domina o total: 938 endpoints foram de fato avaliados, contra 99 DTOs em R2. Sem essa coluna, 875 amarelas de R5 pareciam o mesmo tipo de ruído que 3 vermelhas de R2.
+
+### Roadmap gerado
+
+| Tipo      | Prioridade | Itens |
+| --------- | ---------- | ----: |
+| `binding` | p1         |     2 |
+| `debt`    | p2         |   151 |
+| `test`    | p2         |     0 |
+
+Os dois itens p1 agrupam as três vermelhas por entidade, exatamente como o gerador determinístico especifica:
+
+1. `Amarrar estoque_contagem_linha entre as camadas` — módulo `replenishment`, evidências `EstoqueContagemLinhaRequest.java:8` e `EstoqueContagemLinhaEntity.java:24`.
+2. `Amarrar fin_conta_gerencial entre as camadas` — módulo `accounting`, evidências `FinContaGerencialDTO.java:9` e `FinContaGerencial.java:21`.
+
+Os 151 itens de débito vieram de `TODO`/`FIXME`/`HACK`; nenhum arquivo quente sem teste entrou porque o gerador de teste depende de histórico Git e o recorte não teve candidatos acima do limiar. Nenhum item manual foi criado ou apagado durante a revalidação.
+
+### Nova amostra de 30 pendências
+
+Amostra estratificada proporcional à população ativa (R5 ≈ 87%), sem reutilizar os 20 itens da Etapa 4, mais censo das 3 vermelhas de R2 (são todas).
+
+|   # | Regra | Pendência                                                                     | Veredito | Evidência                                                                                                                    |
+| --: | ----- | ----------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+|   1 | R3    | `atacarejo_pdv_cancelamento_otp.*`                                            | ✅       | entidade `@Table(name = "atacarejo_pdv_cancelamento_otp")`; nenhuma migration com esse nome                                  |
+|   2 | R3    | `fiscal_rtc_classificacao.data_atualizacao`                                   | ✅       | migration `V20260101_65...sql:20` tem a coluna; entidade tem só `atualizado_em` (`:62`)                                      |
+|   3 | R3    | `tax_transaction.cfop`                                                        | ❌ FP    | `TaxTransaction.java:78-79` tem `@Column(name = "cfop") private String cfop`; migration p10 `:67` também tem                 |
+|   4 | R5    | `ajuda.POST /api/v1/public/ajuda/perguntar`                                   | ❌ FP    | `help/app.js:142` monta `base + "/api/v1/public/ajuda/perguntar"` e consome em `:175`                                        |
+|   5 | R5    | `atacarejo.GET /api/v1/atacarejo/pedidos-balcao/:param/cobranca-pix/status`   | ✅       | nenhuma referência a `cobranca-pix` no front                                                                                 |
+|   6 | R5    | `auth.GET /api/v1/auth/eligibility`                                           | ✅       | nenhuma referência a `eligibility` no front                                                                                  |
+|   7 | R5    | `cadastro.GET /api/v1/cadastros/clientes/por-documento`                       | ✅       | nenhuma referência a `por-documento`                                                                                         |
+|   8 | R5    | `cadastro.GET /api/v1/cadastros/pontos-venda`                                 | ✅       | nenhuma referência a `pontos-venda`                                                                                          |
+|   9 | R5    | `cadastro.PATCH /api/v1/cadastros/frota/veiculos/:param/ativar`               | ✅       | helper `ativar(path,id)` existe (`cadastro-mestre-api.js:196`), mas nenhum chamador passa `frota/veiculos`                   |
+|  10 | R5    | `cadastro.POST /api/v1/cadastros/clientes/:param/avaliar-bloqueio-automatico` | ✅       | nenhuma referência a `avaliar-bloqueio`                                                                                      |
+|  11 | R5    | `cadastro.POST /api/v1/cadastros/usuarios`                                    | ❌ FP    | `acesso-admin.js:957` faz exatamente esse POST                                                                               |
+|  12 | R5    | `cognitive.GET /api/v1/cognitive/capabilities/:param`                         | ✅       | nenhuma referência a `cognitive/capabilities`                                                                                |
+|  13 | R5    | `commercial.POST /api/v1/commercial/contracts/:param/approve`                 | ✅       | nenhuma chamada de API commercial no front                                                                                   |
+|  14 | R5    | `cotacoe.GET /api/v1/cotacoes/:param`                                         | ✅       | nenhuma referência a `cotacoes` no front                                                                                     |
+|  15 | R5    | `estoque.GET /api/v1/estoque/operacional/contagens`                           | ❌ FP    | `estoque-conferencia-api.js:95` faz `GET /contagens` com `BASE = "/api/v1/estoque/operacional"` (`:6`)                       |
+|  16 | R5    | `estoque.POST /api/v1/estoque/transferencias/:param/receber`                  | ✅       | front só cria transferência (`compras-pedido-assessoria.js:302`); nunca chama `/receber`                                     |
+|  17 | R5    | `finance.POST /api/v1/finance/reconciliation/divergencias/:param/ignorar`     | ✅       | `divergencias` no front é só aba de inbox fiscal; não há chamada de API                                                      |
+|  18 | R5    | `financeiro.PATCH /api/v1/financeiro/contratos-recorrentes/:param/retomar`    | ✅       | front usa `POST .../retomar` (`contratos-recorrentes.js:358`); o PATCH fica sem consumidor — provável bug de método no front |
+|  19 | R5    | `financeiro.PUT /api/v1/financeiro/despesas-fixas/:param`                     | ✅       | front usa GET/POST/PATCH (`dre-360.js:517,538,565`), não PUT                                                                 |
+|  20 | R5    | `fiscal.GET /api/v1/fiscal/layouts/logo`                                      | ❌ FP    | `layout-logo.js:38` faz GET no mesmo `ENDPOINT`                                                                              |
+|  21 | R5    | `fiscal.POST /api/v1/fiscal/entradas-xml/:param/confirmar`                    | ❌ FP    | `nf-entrada-sefaz.js:194` faz exatamente esse POST                                                                           |
+|  22 | R5    | `fiscal.PUT /api/v1/fiscal/layouts/cupom`                                     | ❌ FP    | `cupom-layout-ui.js:144-145` faz PUT no mesmo caminho                                                                        |
+|  23 | R5    | `hcp.GET /api/v1/hcp/payroll/convenios`                                       | ✅       | nenhuma referência a payroll/convenios no front                                                                              |
+|  24 | R5    | `integracao.POST /api/v1/integracao/hub/conexoes/:param/desconectar`          | ❌ FP    | `integracoes-hub.js:397,497` chama POST `/conexoes/:id/desconectar`                                                          |
+|  25 | R5    | `marketing.GET /api/v1/marketing/produtos/:param/sync-status`                 | ✅       | a única ocorrência de `sync-status` é um id de DOM (`fis-cfg-sync-status`)                                                   |
+|  26 | R5    | `portal.POST /api/v1/portal/pedidos`                                          | ✅       | `portal/` é site de planos/checkout, sem consumo da API do ERP                                                               |
+|  27 | R5    | `sale.PUT /api/v1/sales/order/:param/cancel`                                  | ✅       | front cancela via POST `/api/v1/vendas/pedidos-comerciais/:id/cancelar` (`pedido-comercial-api.js:356`)                      |
+|  28 | R5    | `sythaxtech.POST /api/v1/public/sythaxtech/assinatura/iniciar`                | ✅       | `sythaxtech` no front é só chave de `sessionStorage`                                                                         |
+|  29 | R5    | `venda.POST /api/v1/vendas/comercial/:param/estornar`                         | ✅       | o estorno em `telas-locais.js:9442` é local (localStorage), sem chamada de API                                               |
+|  30 | R6    | `ajuda.*`                                                                     | ❌ FP    | `help/app.js` consome a API de perguntas; existe tela dedicada                                                               |
+
+Censo R2 (todas as 3 vermelhas):
+
+| Pendência                                   | Veredito | Evidência                                                                                                  |
+| ------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `estoque_contagem_linha.codigo_produto`     | ✅       | DTO tem `codigoProduto` (`:9`); entidade tem `codigo` (`:42`) e `produto_id` (`:36`), não `codigo_produto` |
+| `estoque_contagem_linha.quantidade_contada` | ✅       | DTO tem `quantidadeContada` (`:11`); entidade persiste `saldo_contado` (`:51`)                             |
+| `fin_conta_gerencial.plano_conta_codigo`    | ✅       | DTO tem `planoContaCodigo` derivado (`:17`); entidade só tem `plano_conta_id` (`:35`)                      |
+
+### Precisão
+
+| Regra | Ativos | Amostrados | Corretos |                                        Precisão |
+| ----- | -----: | ---------: | -------: | ----------------------------------------------: |
+| R2    |      3 |   3 (cens) |        3 |                                            100% |
+| R3    |     83 |          3 |        2 |                                           66,7% |
+| R5    |    875 |         26 |       19 |                                           73,1% |
+| R6    |     47 |          1 |        0 |                                              0% |
+| Total |  1.008 | 30 + censo |    24/33 | 72,7% bruta · **≈69% ponderada** pela população |
+
+A precisão ponderada usa os ativos de cada regra (R5 responde por 87% do total), por isso fica próxima da precisão de R5. A amostra de R3 (3 itens) e R6 (1 item) é pequena demais para conclusão forte; o valor de R6 é um alerta, não uma medida.
+
+### Leitura dos falsos positivos restantes
+
+Todos os 7 FPs de R5 e o FP de R6 têm a mesma causa: **URL indireta no front vanilla**. O detector reconhece `base + "/api/..."` literal, mas ainda perde quando a URL:
+
+- é devolvida por uma função (`help/app.js:142`);
+- é montada com constante de caminho (`layout-logo.js:9`, `cupom-layout-ui.js:4`);
+- é montada com `encodeURIComponent` no meio (`nf-entrada-sefaz.js:194`, `integracoes-hub.js:397`);
+- é centralizada num wrapper (`estoque-conferencia-api.js:95`, `acesso-admin.js:957`).
+
+O FP de R3 (`tax_transaction.cfop`) é de outra natureza: a entidade está no módulo `ats`, mas a migration foi classificada em `accounting`; o confronto entre módulos diferentes perdeu a coluna. As regras de campo (R1/R2/R3) seguem com precisão alta fora desse caso cross-module, e as três vermelhas continuam sendo divergências reais de contrato.

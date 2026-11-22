@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   acceptBinding,
+  createRoadmapItem,
   explainBinding,
   fetchAiStatus,
   fetchBindingScans,
@@ -13,11 +14,15 @@ import {
   fetchFileEvents,
   fetchHealth,
   fetchProject,
+  fetchRoadmap,
   fetchSnapshots,
   fetchStats,
+  generateRoadmap,
+  planWithArchitect,
   scanBindings,
+  updateRoadmapItem,
 } from './client';
-import type { BindingsFilters, TimelineFilters } from '../types';
+import type { BindingsFilters, RoadmapFilters, RoadmapPatch, TimelineFilters } from '../types';
 
 export const queryKeys = {
   project: ['project'] as const,
@@ -33,6 +38,7 @@ export const queryKeys = {
   bindingsSummary: ['bindings-summary'] as const,
   bindingsMatrix: ['bindings-matrix'] as const,
   bindingScans: ['bindings-scans'] as const,
+  roadmap: (filters: RoadmapFilters) => ['roadmap', filters] as const,
 };
 
 export function useProject() {
@@ -163,6 +169,55 @@ export function useAcceptBinding() {
 
 export function useExplainBinding() {
   return useMutation({ mutationFn: explainBinding });
+}
+
+export function useRoadmap(filters: RoadmapFilters) {
+  return useQuery({
+    queryKey: queryKeys.roadmap(filters),
+    queryFn: () => fetchRoadmap(filters),
+    staleTime: 5_000,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useUpdateRoadmapItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: RoadmapPatch }) =>
+      updateRoadmapItem(id, patch),
+    onSuccess: () => invalidateRoadmap(queryClient),
+  });
+}
+
+export function useCreateRoadmapItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createRoadmapItem,
+    onSuccess: () => invalidateRoadmap(queryClient),
+  });
+}
+
+export function useGenerateRoadmap() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: generateRoadmap,
+    onSuccess: () => {
+      invalidateRoadmap(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ['bindings'] });
+    },
+  });
+}
+
+export function useArchitectPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: planWithArchitect,
+    onSuccess: () => invalidateRoadmap(queryClient),
+  });
+}
+
+function invalidateRoadmap(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: ['roadmap'] });
 }
 
 function invalidateBindings(queryClient: ReturnType<typeof useQueryClient>): void {

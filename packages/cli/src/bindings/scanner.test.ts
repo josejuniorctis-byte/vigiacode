@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -299,6 +299,52 @@ describe('scan incremental e resolução', () => {
       const rows = listBindings(opened.db, project.id, { limit: 500 });
       expect(rows.some((binding) => binding.ruleId === 'R4')).toBe(false);
       expect(rows.some((binding) => binding.ruleId === 'R7')).toBe(false);
+    } finally {
+      opened.close();
+    }
+  });
+
+  it('mantém extrações de front e back do mesmo arquivo no cache', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'vigiacode-multilayer-'));
+    tempDirs.push(root);
+    mkdirSync(path.join(root, 'api'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'api/handlers.ts'),
+      [
+        "import { NextResponse } from 'next/server';",
+        '',
+        'export async function GET() {',
+        "  const upstream = await fetch('http://localhost:3000/api/orders');",
+        '  return NextResponse.json(await upstream.json());',
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const opened = openDatabase(':memory:');
+    applyMigrations(opened.db);
+    const project = registerProject(opened.db, { name: 'multilayer', rootPath: root });
+    const config = createDefaultConfig({ name: 'multilayer', rootPath: root });
+    const scanner = createBindingsScanner({ db: opened.db, project, config });
+
+    const layersOfCache = (): string[] => {
+      const rows = listBindingFileCache(opened.db, project.id);
+      return rows.flatMap((row) =>
+        (JSON.parse(row.data) as Array<{ layer: string }>).map((extract) => extract.layer),
+      );
+    };
+
+    try {
+      await scanner.scan({ trigger: 'manual' });
+      const rows = listBindingFileCache(opened.db, project.id);
+      expect(rows).toHaveLength(1);
+      expect(layersOfCache().sort()).toEqual(['backend', 'frontend']);
+
+      // Sem mudança no arquivo o cache é reaproveitado sem perder nenhuma camada.
+      await scanner.scan({ trigger: 'manual' });
+      expect(listBindingFileCache(opened.db, project.id)).toHaveLength(1);
+      expect(layersOfCache().sort()).toEqual(['backend', 'frontend']);
     } finally {
       opened.close();
     }

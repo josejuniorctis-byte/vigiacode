@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { ArchitectPage } from './pages/ArchitectPage';
 import { BindingsPage } from './pages/BindingsPage';
 import { EvolutionPage } from './pages/EvolutionPage';
 import { FilesPage } from './pages/FilesPage';
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="agenda" element={<EvolutionPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="bindings" element={<BindingsPage />} />
+        <Route path="architect" element={<ArchitectPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

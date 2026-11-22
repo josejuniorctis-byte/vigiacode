@@ -2,10 +2,10 @@
 
 **AI Dev Companion e rastreador de arquitetura para quem desenvolve com agentes de IA** (Cursor, Claude Code, Windsurf).
 
-O VigiaCode acompanha o seu projeto enquanto o código evolui: registra cada mudança com o diff, resume o que aconteceu e, nas próximas etapas, vai detectar **amarrações pendentes** entre front-end, back-end e banco.
+O VigiaCode acompanha o seu projeto enquanto o código evolui: registra cada mudança com o diff, resume o que aconteceu, detecta **amarrações pendentes** entre front-end, back-end e banco e transforma o diagnóstico num **roadmap vivo** de próximos passos.
 
-> **Status: Etapa 4 — Detector de Amarrações.**
-> O `vigiacode start` serve um dashboard local em `http://localhost:4317` com linha do tempo em tempo real, agenda por dia, ranking de arquivos, configurações, status da IA e o **mapa de amarrações entre front-end, back-end e banco** (🔴/🟡/🟢), atualizado pelo vigia.
+> **Status: Etapa 5 — O Arquiteto + Servidor MCP.**
+> O `vigiacode start` serve um dashboard local em `http://localhost:4317` com linha do tempo em tempo real, agenda por dia, ranking de arquivos, configurações, status da IA, o **mapa de amarrações entre front-end, back-end e banco** (🔴/🟡/🟢) e o **quadro do Arquiteto** com próximos passos priorizados. A CLI ganhou `vigiacode architect` e o servidor **MCP** (`vigiacode mcp`) para Cursor, Claude Code, Qoder e Trae.
 
 ---
 
@@ -19,9 +19,12 @@ O VigiaCode acompanha o seu projeto enquanto o código evolui: registra cada mud
 - **Diffs do Git** via simple-git, incluindo arquivos novos não rastreados, com truncagem configurável e snapshots por commit.
 - **Multi-provedor de IA**: `openai`, `anthropic`, `gemini`, `openai-compatible` (OpenRouter, Groq, DeepSeek, LM Studio…), `ollama` e o heurístico `none`, com fila assíncrona e fallback em cadeia.
 - **Detector de amarrações** (Etapa 4): extractors genéricos para React/Vue/Svelte, Express/Fastify/Nest/Next, Spring, FastAPI, Drizzle, Prisma, TypeORM, JPA e migrations SQL; regras R1–R10, matriz entidade × camadas, scan incremental pelo vigia, cache por hash e explicação com IA.
-- **Dashboard em React 19 + Vite 7 + Tailwind 4** com tema claro/escuro, linha do tempo, agenda de evolução, arquivos, tela de **Amarrações** com SSE e configurações.
-- Comandos `vigiacode init`, `start`, `log`, `ai test`, `ai use` e `bindings scan/list/matrix`, com mensagens em português.
-- ESLint + Prettier + **174 testes** (158 no CLI + 16 no web) com **Vitest** e **Testing Library**.
+- **Controle de ruído** (Etapa 5): cobertura por regra (avaliados × ignorados), saúde ponderada e de campo, perfis `strict`/`balanced`/`lenient` e agrupamento por módulo/regra.
+- **O Arquiteto** (Etapa 5): roadmap dinâmico no banco, itens gerados deterministicamente a partir das amarrações 🔴, `TODO/FIXME/HACK` e arquivos quentes sem teste; checklist com auto-verificação, fechamento automático com evidência e plano opcional com IA.
+- **Servidor MCP** (Etapa 5): `vigiacode mcp` via stdio com ferramentas, recursos e prompt prontos para Cursor, Claude Code, Qoder e Trae.
+- **Dashboard em React 19 + Vite 7 + Tailwind 4** com tema claro/escuro, linha do tempo, agenda de evolução, arquivos, telas de **Amarrações** e **Arquiteto** com SSE e configurações.
+- Comandos `vigiacode init`, `start`, `log`, `ai test`, `ai use`, `bindings scan/list/matrix`, `architect generate/list/plan/done` e `mcp`, com mensagens em português.
+- ESLint + Prettier + **183 testes** (165 no CLI + 18 no web) com **Vitest** e **Testing Library**.
 
 **Ainda não implementado (proposital):** relatórios de evolução e snapshots de arquitetura (Etapa 6).
 
@@ -137,7 +140,8 @@ O prompt pede um resumo curto em português com: o que mudou, a camada afetada e
 - **Linha do tempo**: lotes agrupados por `batch_id`, horário relativo, badges de camada, `+linhas/−linhas`, resumo da IA e skeleton “gerando resumo…” que é preenchido pelo SSE. Filtros por camada, texto e período, scroll infinito com `?before` e painel lateral com diff colorido, números de linha e aviso de truncagem.
 - **Agenda de Evolução**: visão por dia com quantidade de lotes/arquivos, camadas mais mexidas, lotes do dia e marcadores dos snapshots (hashes curtos).
 - **Arquivos**: ranking dos mais alterados, camada, último resumo e histórico completo de cada arquivo.
-- **Amarrações**: cards de 🔴/🟡/🟢, % de saúde, matriz entidade × camadas, gráfico de evolução, lista filtrável com referências clicáveis, “Explicar com IA” e “Aceitar como falso positivo”, tudo com SSE e badge de 🔴 na navegação.
+- **Amarrações**: cards de 🔴/🟡/🟢, saúde simples/ponderada/de campo, cobertura por regra, matriz entidade × camadas, gráfico de evolução, agrupamento por módulo/regra e lista filtrável com referências clicáveis, “Explicar com IA” e “Aceitar como falso positivo”, tudo com SSE e badge de 🔴 na navegação.
+- **Arquiteto**: kanban `todo/doing/blocked/done` com filtros de módulo/tipo/prioridade, cartões de evidência, checklist e **Gerar plano com IA**; a linha do tempo mostra os próximos 5 passos (p0/p1).
 - **Configurações**: config atual somente leitura, provider/modelo, presença da chave (nunca a chave) e botão **Testar IA** (`POST /api/ai/test`).
 - Tema escuro por padrão, alternância claro/escuro persistida em `localStorage`.
 - SSE com reconexão automática e backoff exponencial; indicadores de API e “ao vivo” no cabeçalho.
@@ -151,7 +155,7 @@ pnpm dev          # CLI em watch + Vite em http://localhost:5173 (proxy /api →
 pnpm build        # gera packages/web/dist, servido pelo vigiacode start
 ```
 
-Rotas da interface: `/` (linha do tempo), `/agenda`, `/files`, `/bindings`, `/settings`.
+Rotas da interface: `/` (linha do tempo), `/agenda`, `/files`, `/bindings`, `/architect`, `/settings`.
 
 ---
 
@@ -209,6 +213,7 @@ Tudo em `.vigiacode/config.json`, na chave `bindings` (configs antigos recebem o
 
 ```json
 "bindings": {
+  "profile": "balanced",
   "rules": {
     "R1": { "enabled": true, "severity": "red" },
     "R2": { "enabled": true, "severity": "red" },
@@ -228,12 +233,28 @@ Tudo em `.vigiacode/config.json`, na chave `bindings` (configs antigos recebem o
 }
 ```
 
-- `rules.<R>.enabled=false` desliga a regra;
+- `profile` escolhe o preset de regras: `strict` (tudo ligado), `balanced` (padrão) e `lenient` (R5/R6 desligadas automaticamente quando o front não usa cliente HTTP tipado, como `fetch`/`axios` avulsos). O bloco `rules` explícito continua vencendo o preset regra a regra;
 - `rules.<R>.severity` troca 🔴 por 🟡 (ou vice-versa);
 - `ignore` aceita os mesmos padrões glob do vigia (testes, `dist`, `target`, `__mocks__` e artefatos gerados já são ignorados por padrão);
-- `acceptedFalsePositives` aceita `"R1:user:phone"` ou `{ "rule": "R1", "entity": "user", "field": "phone" }`;
+- `acceptedFalsePositives` aceita `"R1:user:phone"` ou `{ "rule": "R1", "entity": "user", "field": "phone" }` e é a **fonte única da verdade** de falsos positivos, versionada junto com o projeto. O `GET /api/bindings` e o resumo leem a coluna `accepted`, que é sincronizada a partir do config a cada scan; o botão **Aceitar como falso positivo** do dashboard grava no `config.json` e reflete o banco na hora;
 - `semanticMatching` liga a segunda fase do matcher (sinônimos e LLM opcional); com provider `none` só a heurística local roda, sem rede;
 - `r1IncludeTypes` inclui campos declarados apenas em tipos/interfaces do front na R1. Desligue (`false`) em projetos com muitos view models/projeções para reduzir ruído; formulários e payloads continuam sendo checados.
+
+### Ruído, cobertura e saúde
+
+Repositórios grandes têm muitos endpoints legítimos sem consumidor no front (integrações, webhooks, APIs públicas). Em vez de esconder isso, a Etapa 5 separa **o que foi avaliado** do **que foi ignorado** e resume a saúde em números que refletem o risco:
+
+| Métrica                 | Fórmula                                                | Para que serve                                                           |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `healthPercent`         | `verdes / ativos`                                      | visão simples de proporção                                               |
+| `weightedHealthPercent` | `verdes / (verdes + vermelhas + amarelas × 0,3)`       | saúde geral: amarela pesa 30% de uma vermelha                            |
+| `fieldHealthPercent`    | mesma fórmula, restrita às regras de campo (**R1–R3**) | saúde do contrato campo a campo, sem o ruído de endpoints sem consumidor |
+
+A **cobertura por regra** vem congelada no último scan (`coverage_json`): para cada regra, quantos itens foram **avaliados**, quantos foram **ignorados** (testes, mocks, gerados), quantos viraram 🔴/🟡/🟢 e por que a regra ficou desligada (config ou perfil). Exemplo: “R5: 875🟡 em 1.240 endpoints avaliados”.
+
+No dashboard, a lista de Amarrações pode ser **agrupada por módulo ou por regra**, com contagens recolhíveis e filtros por módulo. Na CLI, `bindings list`/`matrix` mostram as mesmas contagens e o resumo ao final do scan inclui cobertura, saúde ponderada e saúde de campo.
+
+**Perfis**: `strict` liga R1–R10; `balanced` (padrão) mantém R9/R10 desligadas; `lenient` desliga R5/R6 quando não há cliente HTTP tipado no front, porque nesse cenário “endpoint sem consumidor” é quase sempre falso positivo.
 
 ### CLI
 
@@ -276,7 +297,9 @@ O SSE `/api/events/stream` ganhou o evento `bindings`, com novas, resolvidas e a
 
 A tela **Amarrações** (`/bindings`) tem:
 
-- cards de 🔴/🟡/🟢 e **% de saúde**;
+- cards de 🔴/🟡/🟢, **saúde simples**, **saúde ponderada** e **saúde de campo** (R1–R3);
+- **cobertura por regra** (avaliados × ignorados × resultados) e perfil ativo do último scan;
+- **agrupamento por módulo ou regra** com contagens recolhíveis e filtro por módulo;
 - **matriz** entidade × front × back × banco com ✅ integrado, 🟡 parcial, ⬜ só local, ❌ faltando e ↗ falta amarrar;
 - **gráfico de evolução por scan** (barras empilhadas);
 - lista filtrável por status/camada/regra/entidade/texto, com referências clicáveis para `/files?path=…`, **Explicar com IA** e **Aceitar como falso positivo**;
@@ -313,6 +336,149 @@ O detector foi rodado no repositório **SythaxSystem** (React + Spring Boot + Fl
 
 ---
 
+## O Arquiteto
+
+O Arquiteto transforma o diagnóstico em **roadmap vivo**: itens priorizados, com evidência e checklist, que se abrem e se fecham conforme o código muda. Tudo fica no banco local (`roadmap_items` + `roadmap_links`, migration `0004_architect.sql`), sem serviço externo.
+
+### O que é gerado automaticamente
+
+| Fonte                                                                    | Tipo do item | Prioridade | Regra de agrupamento                                                               |
+| ------------------------------------------------------------------------ | ------------ | ---------- | ---------------------------------------------------------------------------------- |
+| Amarrações 🔴 agrupadas por entidade                                     | `binding`    | `p1`       | um item por entidade (não por campo), com as referências `arquivo:linha` nos links |
+| Comentários `TODO`, `FIXME` e `HACK`                                     | `debt`       | `p2`       | um item por comentário, com `arquivo:linha` na evidência                           |
+| Arquivo muito alterado (≥3 mudanças em 30 dias) sem teste correspondente | `test`       | `p2`       | um item por arquivo, com o histórico recente como evidência                        |
+
+- **Fechamento automático**: quando o problema desaparece (a amarração 🔴 some, o comentário é removido ou o teste passa a existir), o item gerado vira `done` com a evidência do scan/arquivo e o `closed_at`. Se o problema voltar, o item é **reaberto** em vez de duplicado.
+- **Itens manuais** (criados pela API/CLI) **nunca** são fechados, apagados ou reabertos pelo Arquiteto; só mudam por ação explícita.
+- Cada item carrega checklist, e os critérios verificáveis (amarração resolvida, comentário ausente, teste presente) são marcados automaticamente com evidência.
+- `vigiacode architect plan "<objetivo>"` gera um plano de execução: usa a IA configurada quando há provider e cai na **heurística local** com `provider none`, sem rede.
+
+### CLI
+
+```bash
+vigiacode architect generate            # escaneia e gera/atualiza o roadmap
+vigiacode architect generate --no-scan  # usa o estado atual do banco
+vigiacode architect list --status todo --priority p1
+vigiacode architect list --kind binding --module users
+vigiacode architect plan "ligar tela de pedidos ao back-end"
+vigiacode architect done <id> --note "feito no PR #42"
+```
+
+### API local
+
+| Rota                         | Resposta                                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `GET /api/roadmap`           | itens + contagens; `?status`, `?kind`, `?priority`, `?module`, `?q`, `?limit` (máx. 2000) |
+| `POST /api/roadmap`          | cria item manual (`title`, `kind`, `priority`, `module`, `description`, `checklist`)      |
+| `GET /api/roadmap/:id`       | detalhe do item                                                                           |
+| `PATCH /api/roadmap/:id`     | atualiza status/prioridade/tipo/título/descrição/módulo/checklist                         |
+| `POST /api/roadmap/generate` | roda (opcionalmente) um scan e regenera os itens determinísticos                          |
+| `POST /api/architect/plan`   | gera plano para um `objective` (IA ou heurística)                                         |
+
+O SSE ganhou o evento `roadmap` (criados, reabertos, fechados, contagens e itens), consumido pelo quadro do dashboard. A tela **Arquiteto** (`/architect`) mostra um kanban `todo/doing/blocked/done` com filtros de módulo/tipo/prioridade, cartões de evidência, checklist clicável e o botão **Gerar plano com IA**. A **Linha do tempo** (`/`) exibe os **próximos 5 passos** (itens abertos p0/p1).
+
+---
+
+## Servidor MCP
+
+`vigiacode mcp` sobe um servidor **Model Context Protocol** via **stdio**, para o agente consultar o estado do projeto antes de codar e atualizar o roadmap depois.
+
+```bash
+vigiacode mcp                          # usa o diretório atual
+vigiacode mcp --project /caminho/app   # aponta para outra raiz já inicializada
+```
+
+### Ferramentas
+
+| Ferramenta                 | O que faz                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `vigiacode_status`         | contagens 🔴/🟡/🟢, saúde simples/ponderada/de campo, cobertura por regra, perfil, roadmap e último scan          |
+| `vigiacode_bindings`       | lista amarrações com `arquivo:linha`; filtra por `status`, `entity`, `rule`, `module`, `includeResolved`, `limit` |
+| `vigiacode_check_entity`   | cruza uma entidade nas três camadas e devolve a linha da matriz + pendências + verdes                             |
+| `vigiacode_roadmap`        | itens e contagens do roadmap; filtros `status`, `kind`, `priority`, `module`, `search`                            |
+| `vigiacode_roadmap_update` | **única ferramenta de escrita**: status, prioridade, título, descrição/nota e checklist de um item                |
+| `vigiacode_recent_changes` | eventos recentes do vigia; filtros `limit`, `layer`, `sinceMinutes`                                               |
+| `vigiacode_scan`           | roda o detector (incremental com `changedFiles`, completo sem) e devolve antes/depois/delta das contagens         |
+
+### Recursos e prompt
+
+- `vigiacode://summary` — status consolidado (JSON).
+- `vigiacode://matrix` — matriz entidade × front × back × banco do último scan.
+- `vigiacode://roadmap` — itens e contagens do roadmap.
+- Prompt **`antes-de-codar`** (argumento opcional `objetivo`): checklist que manda consultar status, amarrações vermelhas, a entidade afetada e o roadmap antes de editar, e rodar `vigiacode_scan` + `vigiacode_roadmap_update` depois.
+
+### Configurar no editor
+
+**Cursor** — `.cursor/mcp.json` na raiz do projeto:
+
+```json
+{
+  "mcpServers": {
+    "vigiacode": {
+      "command": "node",
+      "args": [
+        "C:/caminho/para/vigiacode/packages/cli/dist/index.js",
+        "mcp",
+        "--project",
+        "C:/caminho/do/seu-projeto"
+      ]
+    }
+  }
+}
+```
+
+Se você linkou/publicou o pacote, pode usar o binário direto:
+
+```json
+{
+  "mcpServers": {
+    "vigiacode": {
+      "command": "vigiacode",
+      "args": ["mcp", "--project", "/caminho/do/seu-projeto"]
+    }
+  }
+}
+```
+
+**Claude Code**:
+
+```bash
+claude mcp add vigiacode -- vigiacode mcp --project /caminho/do/seu-projeto
+# ou, sem instalação global:
+claude mcp add vigiacode -- node /caminho/para/vigiacode/packages/cli/dist/index.js mcp --project /caminho/do/seu-projeto
+```
+
+**Qoder** — em _Settings → MCP_ (ou no `mcp.json` do workspace), o mesmo formato stdio:
+
+```json
+{
+  "mcpServers": {
+    "vigiacode": {
+      "command": "node",
+      "args": [
+        "C:/caminho/para/vigiacode/packages/cli/dist/index.js",
+        "mcp",
+        "--project",
+        "C:/caminho/do/seu-projeto"
+      ]
+    }
+  }
+}
+```
+
+**Trae** — _MCP → Add → Manual_, transporte **stdio**, com o mesmo `command`/`args` acima.
+
+> O servidor usa **stdout apenas para o protocolo MCP**. Diagnósticos e mensagens vão para **stderr**, então logs não corrompem a sessão do editor.
+
+### Segurança
+
+- O MCP **lê apenas** o projeto local e o banco do VigiaCode.
+- A **única escrita** é `vigiacode_roadmap_update`, restrita ao banco do próprio projeto.
+- Nada de `.env`, chaves ou segredos é lido ou exposto; `vigiacode_status` mostra no máximo provider/modelo configurados.
+- Não inicia o SythaxSystem nem qualquer outro serviço: é tudo local e somente leitura fora do banco do VigiaCode.
+
+---
+
 ## Stack
 
 | Camada    | Escolha                                                                      |
@@ -342,24 +508,26 @@ vigiacode/
 ├─ packages/
 │  ├─ cli/
 │  │  ├─ package.json      name "vigiacode", bin "vigiacode" → dist/index.js
-│  │  ├─ drizzle/          migrations SQL (0000_init + 0001_watcher + 0002_bindings)
+│  │  ├─ drizzle/          migrations SQL (0000_init … 0004_architect)
 │  │  ├─ test/fixtures/    React+Fastify+Drizzle, React+Spring+Flyway, Next+Prisma
 │  │  ├─ drizzle.config.ts
 │  │  └─ src/
 │  │     ├─ index.ts       entry do Commander
 │  │     ├─ config.ts      leitura/escrita do .vigiacode/config.json (watch/llm/bindings)
-│  │     ├─ commands/      init.ts, start.ts, log.ts, ai.ts, bindings.ts
-│  │     ├─ db/            schema.ts, client.ts, migrate.ts, repository.ts, bindings-repository.ts
+│  │     ├─ commands/      init.ts, start.ts, log.ts, ai.ts, bindings.ts, architect.ts, mcp.ts
+│  │     ├─ db/            schema.ts, client.ts, migrate.ts, repository.ts, bindings-repository.ts, roadmap-repository.ts
 │  │     ├─ bindings/      extractors, names, matcher, rules, scanner, matrix, explain
+│  │     ├─ architect/     module.ts e index.ts (geradores, auto-close, plano)
+│  │     ├─ mcp/           server.ts (tools, resources e prompt MCP)
 │  │     ├─ watcher/       chokidar, debounce, ignores, layers, recorder
 │  │     ├─ git/           diffs (simple-git) e snapshots por commit
 │  │     ├─ ai/            summarizer, fila, status e providers/ (openai, anthropic, gemini, compatible, ollama)
 │  │     ├─ server/        Fastify + rotas + SSE + estático
 │  │     └─ utils/         logger e loader de .env
 │  └─ web/
-│     ├─ src/pages/        Linha do tempo, Agenda, Arquivos, Amarrações (matriz/lista), Configurações
-│     ├─ src/components/   header, sidebar (badge 🔴), timeline, filtros, diff, drawer…
-│     ├─ src/hooks/        useEventStream (change/summary/bindings), useLiveEvents, tema e debounce
+│     ├─ src/pages/        Linha do tempo, Agenda, Arquivos, Amarrações, Arquiteto, Configurações
+│     ├─ src/components/   header, sidebar (badge 🔴), timeline, filtros, diff, drawer, kanban…
+│     ├─ src/hooks/        useEventStream (change/summary/bindings/roadmap), useLiveEvents, tema e debounce
 │     ├─ src/api/          client fetch + hooks TanStack Query
 │     └─ src/test/         setup, mocks e fixtures (Testing Library)
 └─ README.md, LICENSE (MIT), .editorconfig, .gitignore
@@ -528,6 +696,49 @@ Imprime a matriz entidade × front-end × back-end × banco do último scan.
 vigiacode bindings matrix
 ```
 
+### `vigiacode architect generate`
+
+Roda (ou reaproveita, com `--no-scan`) o detector e gera/atualiza o roadmap vivo. Imprime criados, reabertos, fechados, contagens por tipo/status e as prioridades p0/p1.
+
+```bash
+vigiacode architect generate
+vigiacode architect generate --no-scan
+```
+
+### `vigiacode architect list`
+
+Lista o roadmap em formato kanban de texto, com filtros e evidência.
+
+```bash
+vigiacode architect list --status todo --priority p1
+vigiacode architect list --kind binding --module users
+```
+
+### `vigiacode architect plan`
+
+Gera um plano de execução para um objetivo, usando a IA configurada ou a heurística local com `provider none`.
+
+```bash
+vigiacode architect plan "ligar a tela de pedidos ao back-end"
+```
+
+### `vigiacode architect done`
+
+Conclui um item manualmente, com nota opcional.
+
+```bash
+vigiacode architect done <id> --note "feito no PR #42"
+```
+
+### `vigiacode mcp`
+
+Sobe o servidor MCP via stdio para Cursor, Claude Code, Qoder e Trae (veja [Servidor MCP](#servidor-mcp)).
+
+```bash
+vigiacode mcp
+vigiacode mcp --project /caminho/do/projeto
+```
+
 ---
 
 ## API local
@@ -538,7 +749,7 @@ vigiacode bindings matrix
 | `GET /api/project`               | projeto registrado + branch/commit atuais                                                        |
 | `GET /api/events`                | `{ "events": [...] }` — `?limit` (1–200), `?before`, `?layer`, `?q` (texto), `?from`/`?to` (ISO) |
 | `GET /api/events/:id`            | evento completo, incluindo `diff` e `diffTruncated`                                              |
-| `GET /api/events/stream`         | SSE com `event: change`, `event: summary` e `event: bindings` (novas/resolvidas/contagens)       |
+| `GET /api/events/stream`         | SSE com `event: change`, `event: summary`, `event: bindings` e `event: roadmap`                  |
 | `GET /api/snapshots`             | commits registrados, mais recentes primeiro                                                      |
 | `GET /api/stats`                 | totais, eventos por dia/camada e arquivos mais alterados                                         |
 | `GET /api/files/events`          | histórico de um arquivo: `?path=src%2Fapi%2Fusers.ts&limit=&before=`                             |
@@ -551,8 +762,14 @@ vigiacode bindings matrix
 | `GET /api/bindings/matrix`       | matriz entidade × front × back × banco                                                           |
 | `GET /api/bindings/scans`        | histórico de scans                                                                               |
 | `POST /api/bindings/scan`        | roda um scan completo                                                                            |
-| `POST /api/bindings/:id/accept`  | aceita a amarração como falso positivo                                                           |
+| `POST /api/bindings/:id/accept`  | aceita a amarração como falso positivo (grava no `config.json`)                                  |
 | `POST /api/bindings/:id/explain` | explica e sugere código (IA ou heurística)                                                       |
+| `GET /api/roadmap`               | itens + contagens do Arquiteto (`?status`, `?kind`, `?priority`, `?module`, `?q`, `?limit`)      |
+| `POST /api/roadmap`              | cria um item manual                                                                              |
+| `GET /api/roadmap/:id`           | detalhe de um item do roadmap                                                                    |
+| `PATCH /api/roadmap/:id`         | atualiza status/prioridade/tipo/título/descrição/módulo/checklist                                |
+| `POST /api/roadmap/generate`     | regenera os itens determinísticos (com scan opcional)                                            |
+| `POST /api/architect/plan`       | gera plano para um objetivo (IA ou heurística)                                                   |
 | `GET /`                          | dashboard (build) ou página de fallback                                                          |
 
 A listagem não inclui o diff completo (use `/api/events/:id`). Exemplo de paginação por cursor:
@@ -580,14 +797,16 @@ Timestamps em **ISO 8601 (UTC)**, gravados como `TEXT`. Todas as tabelas filhas 
 
 | Tabela               | Colunas                                                                                                                                                                                                                 |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `projects`           | `id`, `name`, `root_path`, `created_at`                                                                                                                                                                                 |
+| `projects`           | `id`, `name`, `root_path`, `created_at`, `bindings_rescan_required`                                                                                                                                                     |
 | `snapshots`          | `id`, `project_id`, `commit_hash`, `created_at`                                                                                                                                                                         |
 | `change_events`      | `id`, `project_id`, `file_path`, `change_type` (add/change/unlink), `diff`, `summary`, `batch_id`, `layer`, `diff_truncated`, `created_at`                                                                              |
 | `bindings`           | `id`, `project_id`, `layer`, `entity`, `field`, `status`, `detected_at` + `rule_id`, `severity`, `message`, `front_ref`, `back_ref`, `db_ref`, `suggestion`, `first_seen_at`, `last_seen_at`, `resolved_at`, `accepted` |
-| `binding_scans`      | `id`, `project_id`, `started_at`, `finished_at`, `files_scanned`, `red_count`, `yellow_count`, `green_count`, `created_count`, `resolved_count`, `trigger`, `batch_id`, `matrix_json`, `error`                          |
+| `binding_scans`      | `id`, `project_id`, `started_at`, `finished_at`, `files_scanned`, `red_count`, `yellow_count`, `green_count`, `created_count`, `resolved_count`, `trigger`, `batch_id`, `matrix_json`, `coverage_json`, `error`         |
 | `binding_file_cache` | `id`, `project_id`, `file_path`, `hash`, `layer`, `extractor`, `data`, `updated_at`                                                                                                                                     |
+| `roadmap_items`      | `id`, `project_id`, `title`, `description`, `kind`, `priority`, `status`, `module`, `source`, `source_ref`, `checklist_json`, `evidence_json`, `created_at`, `updated_at`, `closed_at`                                  |
+| `roadmap_links`      | `id`, `item_id`, `layer`, `ref`, `created_at` — referências `arquivo:linha` de cada item                                                                                                                                |
 
-A migration **`0001_watcher.sql`** adiciona `batch_id`, `layer` e `diff_truncated` em `change_events`. A **`0002`** evolui `bindings` e cria `binding_scans`/`binding_file_cache`, sem alterar as migrations antigas.
+A migration **`0001_watcher.sql`** adiciona `batch_id`, `layer` e `diff_truncated` em `change_events`. A **`0002`** evolui `bindings` e cria `binding_scans`/`binding_file_cache`, sem alterar as migrations antigas. A **`0003_fixes.sql`** consolida duplicatas antigas (índice único por projeto+regra+camada+entidade+campo), repara timestamps `1970-01-01`, limpa o cache, adiciona `coverage_json` e `bindings_rescan_required` e agenda o rescan de bancos da Etapa 3. A **`0004_architect.sql`** cria `roadmap_items` e `roadmap_links`. As migrations `0000`–`0002` permanecem intactas.
 
 Migrations são geradas com:
 
@@ -620,6 +839,7 @@ Exemplo de `.vigiacode/config.json`:
     "fallback_providers": ["ollama"]
   },
   "bindings": {
+    "profile": "balanced",
     "rules": {
       "R1": { "enabled": true, "severity": "red" },
       "R2": { "enabled": true, "severity": "red" },
@@ -652,7 +872,7 @@ Configs criados nas Etapas 1 e 2 continuam funcionando: campos novos recebem os 
 | ------------------ | ------------------------------------------------- |
 | `pnpm dev`         | CLI em watch + Vite dev server (proxy para a API) |
 | `pnpm build`       | build do CLI (tsc) e do web (vite)                |
-| `pnpm test`        | testes do CLI e do web com Vitest (174 testes)    |
+| `pnpm test`        | testes do CLI e do web com Vitest (183 testes)    |
 | `pnpm lint`        | ESLint em todo o monorepo                         |
 | `pnpm typecheck`   | TypeScript strict sem emitir                      |
 | `pnpm format`      | Prettier em todo o repositório                    |
@@ -662,15 +882,16 @@ Configs criados nas Etapas 1 e 2 continuam funcionando: campos novos recebem os 
 
 ## Roadmap — 6 etapas
 
-| Etapa | Nome                       | Entrega                                                                                       |
-| ----- | -------------------------- | --------------------------------------------------------------------------------------------- |
-| **1** | **Fundação & Estrutura**   | **Monorepo, CLI, config, banco SQLite/Drizzle, API Fastify, esqueleto web**                   |
-| **2** | **O Vigia**                | **Watcher + diff Git + resumos IA + SSE + `vigiacode log`**                                   |
-| 2.1   | Multi-provedor de IA       | OpenAI, Anthropic, Gemini, APIs OpenAI-compatible, Ollama, fallback em cadeia e `ai test/use` |
-| **3** | **Dashboard Visual**       | **Linha do tempo SSE, Agenda de Evolução, arquivos, configurações, tema e diff drawer**       |
-| **4** | **Detector de Amarrações** | **Extractors multi-stack, regras R1–R10, matriz, scan incremental, SSE, CLI, dashboard e IA** |
-| 5     | IA avançada                | sugestões contextuais, resumos por lote e memória do projeto                                  |
-| 6     | Snapshots & Relatórios     | evolução da arquitetura ao longo do tempo, pronta para CI                                     |
+| Etapa | Nome                       | Entrega                                                                                           |
+| ----- | -------------------------- | ------------------------------------------------------------------------------------------------- |
+| **1** | **Fundação & Estrutura**   | **Monorepo, CLI, config, banco SQLite/Drizzle, API Fastify, esqueleto web**                       |
+| **2** | **O Vigia**                | **Watcher + diff Git + resumos IA + SSE + `vigiacode log`**                                       |
+| 2.1   | Multi-provedor de IA       | OpenAI, Anthropic, Gemini, APIs OpenAI-compatible, Ollama, fallback em cadeia e `ai test/use`     |
+| **3** | **Dashboard Visual**       | **Linha do tempo SSE, Agenda de Evolução, arquivos, configurações, tema e diff drawer**           |
+| **4** | **Detector de Amarrações** | **Extractors multi-stack, regras R1–R10, matriz, scan incremental, SSE, CLI, dashboard e IA**     |
+| **5** | **O Arquiteto + MCP**      | **Roadmap vivo determinístico, auto-close com evidência, plano com IA, servidor MCP e dashboard** |
+| 5.1   | IA avançada                | sugestões contextuais, resumos por lote e memória do projeto                                      |
+| 6     | Snapshots & Relatórios     | evolução da arquitetura ao longo do tempo, pronta para CI                                         |
 
 ---
 

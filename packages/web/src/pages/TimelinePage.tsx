@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useBindingScans, useSnapshots } from '../api/hooks';
+import { Link } from 'react-router-dom';
+import { useBindingScans, useRoadmap, useSnapshots } from '../api/hooks';
 import { BatchCard } from '../components/BatchCard';
 import { DiffDrawer } from '../components/DiffDrawer';
 import { EmptyState, LoadingPanel } from '../components/EmptyState';
@@ -9,7 +10,13 @@ import { SnapshotRail } from '../components/SnapshotRail';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useLiveEvents } from '../hooks/useLiveEvents';
 import { useMergedEvents } from '../hooks/useMergedEvents';
-import { EMPTY_FILTERS, type Batch, type BindingDelta, type TimelineFilters } from '../types';
+import {
+  EMPTY_FILTERS,
+  EMPTY_ROADMAP_FILTERS,
+  type Batch,
+  type BindingDelta,
+  type TimelineFilters,
+} from '../types';
 import { groupEvents } from '../utils/batches';
 
 export function TimelinePage() {
@@ -24,6 +31,7 @@ export function TimelinePage() {
     useMergedEvents(apiFilters);
   const snapshots = useSnapshots();
   const bindingScans = useBindingScans();
+  const roadmap = useRoadmap(EMPTY_ROADMAP_FILTERS);
   const { recentBatchIds, latestBindings } = useLiveEvents();
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -75,6 +83,39 @@ export function TimelinePage() {
           </button>
         }
       />
+
+      {roadmap.data && roadmap.data.next.length > 0 ? (
+        <section className="panel overflow-hidden" data-testid="next-steps">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+            <h2 className="text-sm font-semibold text-[var(--text)]">Próximos 5 passos</h2>
+            <Link to="/architect" className="text-[11px] text-[var(--accent)] hover:underline">
+              Abrir Arquiteto →
+            </Link>
+          </div>
+          <ol className="divide-y divide-[var(--border)]">
+            {roadmap.data.next.slice(0, 5).map((item, index) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm">
+                <span className="w-5 text-center font-mono text-[11px] text-[var(--muted)]">
+                  {index + 1}
+                </span>
+                <span
+                  className={`badge border ${
+                    item.priority === 'p0'
+                      ? 'border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300'
+                      : 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-300'
+                  }`}
+                >
+                  {item.priority.toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[var(--text)]">{item.title}</span>
+                {item.module ? (
+                  <span className="font-mono text-[10px] text-[var(--muted)]">{item.module}</span>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
 
       <FilterBar
         filters={filters}

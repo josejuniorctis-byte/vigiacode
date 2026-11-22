@@ -207,6 +207,17 @@ export interface BindingLayerCount {
   green: number;
 }
 
+export interface RuleCoverage {
+  ruleId: string;
+  enabled: boolean;
+  evaluated: number;
+  ignored: number;
+  red: number;
+  yellow: number;
+  green: number;
+  note: string | null;
+}
+
 export interface BindingSummary {
   red: number;
   yellow: number;
@@ -216,8 +227,12 @@ export interface BindingSummary {
   resolved: number;
   accepted: number;
   healthPercent: number;
+  weightedHealthPercent: number;
+  fieldHealthPercent: number;
   byRule: BindingRuleCount[];
   byLayer: BindingLayerCount[];
+  coverage: RuleCoverage[];
+  profile: string | null;
   lastScan: BindingScan | null;
 }
 
@@ -300,3 +315,94 @@ export const EMPTY_BINDING_FILTERS: BindingsFilters = {
   q: '',
   includeResolved: false,
 };
+
+// ---------------------------------------------------------------------------
+// Arquiteto — roadmap vivo (Etapa 5)
+// ---------------------------------------------------------------------------
+
+export type RoadmapStatus = 'todo' | 'doing' | 'done' | 'blocked';
+export type RoadmapKind = 'feature' | 'fix' | 'debt' | 'binding' | 'test' | 'doc';
+export type RoadmapPriority = 'p0' | 'p1' | 'p2' | 'p3';
+export type RoadmapSource = 'manual' | 'binding' | 'git' | 'ai' | 'todo-comment';
+
+export interface RoadmapChecklistEntry {
+  label: string;
+  done: boolean;
+  evidence?: string | null;
+}
+
+export interface RoadmapLink {
+  bindingId: string | null;
+  filePath: string | null;
+  commitSha: string | null;
+}
+
+export interface RoadmapItem {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  kind: RoadmapKind;
+  status: RoadmapStatus;
+  priority: RoadmapPriority;
+  source: RoadmapSource;
+  sourceRef: string | null;
+  module: string | null;
+  createdAt: string;
+  updatedAt: string;
+  doneAt: string | null;
+  evidence: string[];
+  checklist: RoadmapChecklistEntry[];
+  links: RoadmapLink[];
+}
+
+export type RoadmapCounts = Record<RoadmapStatus, number>;
+
+export interface RoadmapResponse {
+  items: RoadmapItem[];
+  counts: RoadmapCounts;
+  next: RoadmapItem[];
+}
+
+export interface RoadmapEvent {
+  type: 'roadmap';
+  scanId: string | null;
+  created: number;
+  reopened: number;
+  closed: number;
+  counts: RoadmapCounts;
+  items: RoadmapItem[];
+}
+
+export interface RoadmapFilters {
+  status: RoadmapStatus | 'all';
+  kind: RoadmapKind | 'all';
+  priority: RoadmapPriority | 'all';
+  module: string;
+  q: string;
+}
+
+export const EMPTY_ROADMAP_FILTERS: RoadmapFilters = {
+  status: 'all',
+  kind: 'all',
+  priority: 'all',
+  module: '',
+  q: '',
+};
+
+export interface RoadmapPatch {
+  status?: RoadmapStatus;
+  priority?: RoadmapPriority;
+  kind?: RoadmapKind;
+  title?: string;
+  description?: string;
+  module?: string | null;
+  checklist?: RoadmapChecklistEntry[];
+}
+
+export interface ArchitectPlanResult {
+  provider: string;
+  heuristic: boolean;
+  objective: string;
+  items: RoadmapItem[];
+}

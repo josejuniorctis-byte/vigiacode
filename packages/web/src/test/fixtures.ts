@@ -6,6 +6,7 @@ import type {
   BindingSummary,
   ChangeEvent,
   Project,
+  RoadmapItem,
   Snapshot,
 } from '../types';
 
@@ -83,6 +84,8 @@ export const bindingSummaryFixture: BindingSummary = {
   resolved: 0,
   accepted: 0,
   healthPercent: 62,
+  weightedHealthPercent: 76,
+  fieldHealthPercent: 50,
   byRule: [
     { ruleId: 'R1', red: 1, yellow: 0, green: 0 },
     { ruleId: 'GREEN', red: 0, yellow: 0, green: 5 },
@@ -91,6 +94,29 @@ export const bindingSummaryFixture: BindingSummary = {
     { layer: 'backend', red: 1, yellow: 0, green: 5 },
     { layer: 'database', red: 0, yellow: 2, green: 0 },
   ],
+  coverage: [
+    {
+      ruleId: 'R1',
+      enabled: true,
+      evaluated: 3,
+      ignored: 0,
+      red: 1,
+      yellow: 0,
+      green: 2,
+      note: null,
+    },
+    {
+      ruleId: 'R5',
+      enabled: true,
+      evaluated: 10,
+      ignored: 2,
+      red: 0,
+      yellow: 2,
+      green: 0,
+      note: null,
+    },
+  ],
+  profile: 'balanced',
   lastScan: null,
 };
 
@@ -164,4 +190,26 @@ export function batchEvents(): ChangeEvent[] {
       deletions: 0,
     }),
   ];
+}
+
+export function roadmapItemFixture(overrides: Partial<RoadmapItem> = {}): RoadmapItem {
+  return {
+    id: 'r1',
+    projectId: 'p1',
+    title: 'Ligar o campo phone de user',
+    description: 'O front usa phone, mas o DTO de user não tem o campo.',
+    kind: 'binding',
+    status: 'todo',
+    priority: 'p1',
+    source: 'binding',
+    sourceRef: 'R1:user:phone',
+    module: 'users',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    doneAt: null,
+    evidence: ['src/pages/UsersPage.tsx:12'],
+    checklist: [{ label: 'Campo phone no DTO', done: false, evidence: null }],
+    links: [{ bindingId: 'b1', filePath: 'src/pages/UsersPage.tsx', commitSha: null }],
+    ...overrides,
+  };
 }

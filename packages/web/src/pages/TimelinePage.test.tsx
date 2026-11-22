@@ -35,6 +35,13 @@ function installFetchMock(events = batchEvents()) {
         scans: [{ ...bindingScanFixture, batchId: 'b1', createdCount: 2, resolvedCount: 1 }],
       });
     }
+    if (url.startsWith('/api/roadmap')) {
+      return jsonResponse({
+        items: [],
+        counts: { todo: 0, doing: 0, done: 0, blocked: 0 },
+        next: [],
+      });
+    }
     if (url === '/api/stats') {
       return jsonResponse({
         totalEvents: events.length,

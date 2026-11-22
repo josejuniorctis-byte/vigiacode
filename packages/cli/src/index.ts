@@ -7,6 +7,12 @@ import {
   runBindingsScan,
   type FailOn,
 } from './commands/bindings.js';
+import {
+  runArchitectDone,
+  runArchitectGenerate,
+  runArchitectList,
+  runArchitectPlan,
+} from './commands/architect.js';
 import { runInit } from './commands/init.js';
 import {
   canPrompt,
@@ -15,6 +21,7 @@ import {
   promptProviderChoice,
 } from './commands/init-prompts.js';
 import { runLog } from './commands/log.js';
+import { runMcpCommand } from './commands/mcp.js';
 import { runStartCommand } from './commands/start.js';
 import {
   isBindingRuleId,
@@ -30,6 +37,7 @@ import {
   type BindingStatus,
   type ChangeEventLayer,
 } from './db/index.js';
+import type { RoadmapKind, RoadmapPriority, RoadmapStatus } from './db/schema.js';
 import { logger } from './utils/logger.js';
 import { VERSION } from './version.js';
 
@@ -75,6 +83,22 @@ interface BindingsListCliOptions {
   q?: string;
   resolved?: boolean;
   limit?: number;
+}
+
+interface ArchitectListCliOptions {
+  status?: RoadmapStatus;
+  kind?: RoadmapKind;
+  priority?: RoadmapPriority;
+  module?: string;
+  limit?: number;
+}
+
+interface ArchitectGenerateCliOptions {
+  noScan?: boolean;
+}
+
+interface ArchitectDoneCliOptions {
+  note?: string;
 }
 
 function parseProvider(value: string): LlmProvider {
@@ -152,6 +176,27 @@ function parseFailOn(value: string): FailOn {
     throw new InvalidArgumentError('--fail-on aceita: red, yellow ou none.');
   }
   return value;
+}
+
+function parseRoadmapStatus(value: string): RoadmapStatus {
+  if (!['todo', 'doing', 'done', 'blocked'].includes(value)) {
+    throw new InvalidArgumentError('Status inválido. Use: todo, doing, done ou blocked.');
+  }
+  return value as RoadmapStatus;
+}
+
+function parseRoadmapKind(value: string): RoadmapKind {
+  if (!['feature', 'fix', 'debt', 'binding', 'test', 'doc'].includes(value)) {
+    throw new InvalidArgumentError('Tipo inválido. Use: feature, fix, debt, binding, test ou doc.');
+  }
+  return value as RoadmapKind;
+}
+
+function parseRoadmapPriority(value: string): RoadmapPriority {
+  if (!['p0', 'p1', 'p2', 'p3'].includes(value)) {
+    throw new InvalidArgumentError('Prioridade inválida. Use: p0, p1, p2 ou p3.');
+  }
+  return value as RoadmapPriority;
 }
 
 export function createProgram(): Command {
@@ -338,6 +383,60 @@ export function createProgram(): Command {
       await runBindingsMatrix({ cwd: process.cwd() });
     });
 
+  const architect = program
+    .command('architect')
+    .description('Arquiteto: roadmap vivo derivado de amarrações, TODOs e alterações');
+
+  architect
+    .command('generate')
+    .description('Escaneia o projeto e gera/atualiza os itens do roadmap')
+    .option('--no-scan', 'não roda o scan de amarrações antes de gerar')
+    .action(async (options: ArchitectGenerateCliOptions) => {
+      await runArchitectGenerate({ cwd: process.cwd(), noScan: options.noScan });
+    });
+
+  architect
+    .command('list')
+    .description('Lista os itens do roadmap')
+    .option('--status <status>', 'todo, doing, done ou blocked', parseRoadmapStatus)
+    .option('--kind <tipo>', 'feature, fix, debt, binding, test ou doc', parseRoadmapKind)
+    .option('--priority <prioridade>', 'p0, p1, p2 ou p3', parseRoadmapPriority)
+    .option('--module <módulo>', 'filtra pelo módulo')
+    .option('-n, --limit <n>', 'quantidade (padrão: 100)', parsePositiveInt('limit'))
+    .action(async (options: ArchitectListCliOptions) => {
+      await runArchitectList({
+        cwd: process.cwd(),
+        status: options.status,
+        kind: options.kind,
+        priority: options.priority,
+        module: options.module,
+        limit: options.limit,
+      });
+    });
+
+  architect
+    .command('plan <objetivo>')
+    .description('Gera um plano de execução (heurístico ou IA, conforme o provider)')
+    .action(async (objective: string) => {
+      await runArchitectPlan({ cwd: process.cwd(), objective });
+    });
+
+  architect
+    .command('done <id>')
+    .description('Marca um item do roadmap como concluído')
+    .option('--note <texto>', 'anota o motivo da conclusão')
+    .action(async (id: string, options: ArchitectDoneCliOptions) => {
+      await runArchitectDone({ cwd: process.cwd(), id, note: options.note });
+    });
+
+  program
+    .command('mcp')
+    .description('Sobe o servidor MCP (stdio) para Cursor, Claude Code, Qoder e Trae')
+    .option('--project <caminho>', 'raiz do projeto (padrão: diretório atual)')
+    .action(async (options: { project?: string }) => {
+      await runMcpCommand({ cwd: options.project ?? process.cwd() });
+    });
+
   const ai = program.command('ai').description('Configura e testa o provider de IA');
 
   ai.command('test')
@@ -378,6 +477,11 @@ Exemplos:
   vigiacode bindings scan --fail-on yellow
   vigiacode bindings list --status red --layer frontend
   vigiacode bindings matrix           matriz entidade × front × back × banco
+  vigiacode architect generate        monta o roadmap a partir do código atual
+  vigiacode architect list --priority p1
+  vigiacode architect plan "adicionar checkout"
+  vigiacode architect done <id>       conclui um item do roadmap
+  vigiacode mcp                       servidor MCP (stdio) para o editor/agente
 `,
   );
 

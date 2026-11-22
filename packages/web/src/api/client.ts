@@ -2,6 +2,7 @@ import type {
   AiStatus,
   AiTestResult,
   AppConfig,
+  ArchitectPlanResult,
   BindingExplanation,
   BindingMatrix,
   BindingScan,
@@ -14,6 +15,10 @@ import type {
   HealthResponse,
   Project,
   ProjectStats,
+  RoadmapFilters,
+  RoadmapItem,
+  RoadmapPatch,
+  RoadmapResponse,
   SnapshotsResponse,
   TimelineFilters,
 } from '../types';
@@ -137,6 +142,62 @@ export function acceptBinding(id: string): Promise<unknown> {
 export function explainBinding(id: string): Promise<BindingExplanation> {
   return request<BindingExplanation>(`/api/bindings/${encodeURIComponent(id)}/explain`, {
     method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Arquiteto — roadmap vivo
+// ---------------------------------------------------------------------------
+
+export function fetchRoadmap(filters: RoadmapFilters): Promise<RoadmapResponse> {
+  const params = new URLSearchParams({ limit: '500' });
+  if (filters.status !== 'all') params.set('status', filters.status);
+  if (filters.kind !== 'all') params.set('kind', filters.kind);
+  if (filters.priority !== 'all') params.set('priority', filters.priority);
+  if (filters.module.trim().length > 0) params.set('module', filters.module.trim());
+  if (filters.q.trim().length > 0) params.set('q', filters.q.trim());
+  return request<RoadmapResponse>(`/api/roadmap?${params.toString()}`);
+}
+
+export function updateRoadmapItem(id: string, patch: RoadmapPatch): Promise<RoadmapItem> {
+  return request<RoadmapItem>(`/api/roadmap/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export function createRoadmapItem(input: {
+  title: string;
+  kind?: string;
+  priority?: string;
+  module?: string | null;
+  description?: string;
+}): Promise<RoadmapItem> {
+  return request<RoadmapItem>('/api/roadmap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function generateRoadmap(scan = true): Promise<{
+  created: number;
+  reopened: number;
+  closed: number;
+}> {
+  return request('/api/roadmap/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scan }),
+  });
+}
+
+export function planWithArchitect(objective: string): Promise<ArchitectPlanResult> {
+  return request<ArchitectPlanResult>('/api/architect/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ objective }),
   });
 }
 

@@ -6,11 +6,14 @@ import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import { createProvider, describeProviderError, sanitizeSummary } from '../ai/index.js';
 import type { AiStatusSnapshot, AiStatusTracker } from '../ai/status.js';
 import type { BindingExplanation, BindingMatrix, BindingsScanner } from '../bindings/index.js';
+import { addAcceptedFalsePositive } from '../bindings/accept.js';
 import { explainHeuristic } from '../bindings/explain.js';
+import type { Architect } from '../architect/index.js';
 import {
   effectiveModel,
   isBindingRuleId,
   providerDefaults,
+  writeConfig,
   type VigiaCodeConfig,
 } from '../config.js';
 import type { VigiaCodeDatabase } from '../db/client.js';
@@ -19,9 +22,12 @@ import {
   acceptBinding,
   clampBindingLimit,
   clampLimit,
+  countRoadmapItems,
+  createRoadmapItem,
   findBindingById,
   findChangeEventById,
   findProjectByRootPath,
+  findRoadmapItem,
   getLatestBindingScan,
   getLatestSnapshot,
   getProjectStats,
@@ -29,12 +35,24 @@ import {
   listBindings,
   listChangeEvents,
   listFileEvents,
+  listRoadmapItems,
   listSnapshots,
   resolveEventCursor,
   summarizeBindings,
+  syncAcceptedBindingFlags,
+  updateRoadmapItem,
   type ChangeEventLayer,
+  type RoadmapChecklistInput,
 } from '../db/index.js';
-import type { Binding, BindingLayer, BindingStatus, Project } from '../db/schema.js';
+import type {
+  Binding,
+  BindingLayer,
+  BindingStatus,
+  Project,
+  RoadmapKind,
+  RoadmapPriority,
+  RoadmapStatus,
+} from '../db/schema.js';
 import { EventHub, toPublicEvent } from './hub.js';
 
 export interface GitInfo {
@@ -60,6 +78,8 @@ export interface CreateServerOptions {
   gitInfo?: GitInfo;
   /** Detector de amarrações (Etapa 4). Sem ele as rotas de leitura ainda funcionam. */
   bindingsScanner?: BindingsScanner | null;
+  /** Arquiteto (Etapa 5). Sem ele as rotas de geração/plano respondem 503. */
+  architect?: Architect | null;
   /** Explica uma amarração; quando omitido, usa a explicação heurística. */
   explainBinding?: ((binding: Binding) => Promise<BindingExplanation>) | null;
 }
@@ -487,7 +507,21 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
       return reply.code(404).send({ error: 'Amarração não encontrada.' });
     }
 
-    const updated = acceptBinding(options.db, id);
+    // A fonte de verdade é o config.json (versionável); a coluna `accepted` é
+    // derivada e ressincronizada aqui e em cada scan.
+    if (options.config) {
+      const { patterns } = addAcceptedFalsePositive(
+        options.config.bindings.acceptedFalsePositives,
+        binding,
+      );
+      options.config.bindings.acceptedFalsePositives = patterns;
+      writeConfig(project.rootPath, options.config);
+      syncAcceptedBindingFlags(options.db, project.id, patterns);
+    } else {
+      acceptBinding(options.db, id);
+    }
+
+    const updated = findBindingById(options.db, id);
     return updated
       ? toPublicBinding(updated)
       : reply.code(404).send({ error: 'Amarração não encontrada.' });
@@ -520,6 +554,184 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
       explanation: heuristic.explanation,
       suggestion: heuristic.suggestion,
     } satisfies BindingExplanation;
+  });
+
+  app.get('/api/roadmap', async (request, reply) => {
+    const project = requireProject();
+    if (!project) return projectNotFound(reply);
+
+    const query = request.query as Record<string, unknown>;
+    const items = listRoadmapItems(options.db, project.id, {
+      status: asRoadmapStatus(query.status),
+      kind: asRoadmapKind(query.kind),
+      priority: asRoadmapPriority(query.priority),
+      module:
+        typeof query.module === 'string' && query.module.length > 0 ? query.module : undefined,
+      search: typeof query.q === 'string' && query.q.length > 0 ? query.q : undefined,
+      limit: parseRoadmapLimit(query.limit),
+    });
+    return {
+      items,
+      counts: countRoadmapItems(options.db, project.id),
+      next: items
+        .filter(
+          (item) =>
+            (item.status === 'todo' || item.status === 'doing') &&
+            (item.priority === 'p0' || item.priority === 'p1'),
+        )
+        .slice(0, 5),
+    };
+  });
+
+  app.post('/api/roadmap', async (request, reply) => {
+    const project = requireProject();
+    if (!project) return projectNotFound(reply);
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    if (title.length === 0) {
+      return reply.code(400).send({ error: 'Campo "title" é obrigatório.' });
+    }
+    const kind = asRoadmapKind(body.kind) ?? 'feature';
+    const priority = asRoadmapPriority(body.priority) ?? 'p2';
+    const item = createRoadmapItem(options.db, {
+      projectId: project.id,
+      title,
+      description: typeof body.description === 'string' ? body.description : '',
+      kind,
+      priority,
+      source: 'manual',
+      module: typeof body.module === 'string' && body.module.length > 0 ? body.module : null,
+    });
+    return reply.code(201).send(item);
+  });
+
+  app.post('/api/roadmap/generate', async (request, reply) => {
+    const project = requireProject();
+    if (!project) return projectNotFound(reply);
+    if (!options.architect) {
+      return reply.code(503).send({ error: 'Arquiteto indisponível neste servidor.' });
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    let scanId: string | null = null;
+    if (body.scan !== false && options.bindingsScanner) {
+      const scan = await options.bindingsScanner.scan({ trigger: 'manual' });
+      scanId = scan?.scan.id ?? null;
+    }
+
+    const result = options.architect.generate({ scanId });
+    const counts = countRoadmapItems(options.db, project.id);
+    hub.publish({
+      type: 'roadmap',
+      scanId,
+      created: result.created,
+      reopened: result.reopened,
+      closed: result.closed,
+      counts,
+      items: result.items,
+    });
+    return {
+      scanId,
+      created: result.created,
+      reopened: result.reopened,
+      closed: result.closed,
+      byKind: result.byKind,
+      counts,
+    };
+  });
+
+  app.get('/api/roadmap/:id', async (request, reply) => {
+    const project = requireProject();
+    if (!project) return projectNotFound(reply);
+
+    const { id } = request.params as { id: string };
+    const item = findRoadmapItem(options.db, id);
+    if (!item || item.projectId !== project.id) {
+      return reply.code(404).send({ error: 'Item do roadmap não encontrado.' });
+    }
+    return item;
+  });
+
+  app.patch('/api/roadmap/:id', async (request, reply) => {
+    const project = requireProject();
+    if (!project) return projectNotFound(reply);
+
+    const { id } = request.params as { id: string };
+    const existing = findRoadmapItem(options.db, id);
+    if (!existing || existing.projectId !== project.id) {
+      return reply.code(404).send({ error: 'Item do roadmap não encontrado.' });
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const status = body.status === undefined ? undefined : asRoadmapStatus(body.status);
+    if (body.status !== undefined && status === undefined) {
+      return reply.code(400).send({ error: 'Status inválido. Use todo, doing, done ou blocked.' });
+    }
+    const kind = body.kind === undefined ? undefined : asRoadmapKind(body.kind);
+    if (body.kind !== undefined && kind === undefined) {
+      return reply.code(400).send({ error: 'Tipo inválido.' });
+    }
+    const priority = body.priority === undefined ? undefined : asRoadmapPriority(body.priority);
+    if (body.priority !== undefined && priority === undefined) {
+      return reply.code(400).send({ error: 'Prioridade inválida. Use p0..p3.' });
+    }
+    let checklist: RoadmapChecklistInput[] | undefined;
+    if (body.checklist !== undefined) {
+      const parsed = parseChecklistInput(body.checklist);
+      if (!parsed) {
+        return reply.code(400).send({ error: 'Checklist inválido: use [{label, done}].' });
+      }
+      checklist = parsed;
+    }
+
+    const updated = updateRoadmapItem(options.db, id, {
+      title: typeof body.title === 'string' ? body.title : undefined,
+      description: typeof body.description === 'string' ? body.description : undefined,
+      status,
+      kind,
+      priority,
+      module:
+        body.module === null ? null : typeof body.module === 'string' ? body.module : undefined,
+      checklist,
+    });
+    if (!updated) return reply.code(404).send({ error: 'Item do roadmap não encontrado.' });
+
+    hub.publish({
+      type: 'roadmap',
+      scanId: null,
+      created: 0,
+      reopened: 0,
+      closed: status === 'done' ? 1 : 0,
+      counts: countRoadmapItems(options.db, project.id),
+      items: [updated],
+    });
+    return updated;
+  });
+
+  app.post('/api/architect/plan', async (request, reply) => {
+    const project = requireProject();
+    if (!project) return projectNotFound(reply);
+    if (!options.architect) {
+      return reply.code(503).send({ error: 'Arquiteto indisponível neste servidor.' });
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const objective = typeof body.objective === 'string' ? body.objective.trim() : '';
+    if (objective.length === 0) {
+      return reply.code(400).send({ error: 'Campo "objective" é obrigatório.' });
+    }
+    const result = await options.architect.plan(objective);
+    hub.publish({
+      type: 'roadmap',
+      scanId: null,
+      created: result.items.length,
+      reopened: 0,
+      closed: 0,
+      counts: countRoadmapItems(options.db, project.id),
+      items: result.items,
+    });
+    return result;
   });
 
   app.get('/api/files/events', async (request, reply) => {
@@ -650,6 +862,51 @@ function parseLimit(value: unknown): number | null {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) return null;
   return parsed;
+}
+
+function parseRoadmapLimit(value: unknown): number {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed)) return Math.min(Math.max(parsed, 1), 2000);
+  }
+  return 500;
+}
+
+function asRoadmapStatus(value: unknown): RoadmapStatus | undefined {
+  return value === 'todo' || value === 'doing' || value === 'done' || value === 'blocked'
+    ? value
+    : undefined;
+}
+
+function asRoadmapKind(value: unknown): RoadmapKind | undefined {
+  return value === 'feature' ||
+    value === 'fix' ||
+    value === 'debt' ||
+    value === 'binding' ||
+    value === 'test' ||
+    value === 'doc'
+    ? value
+    : undefined;
+}
+
+function asRoadmapPriority(value: unknown): RoadmapPriority | undefined {
+  return value === 'p0' || value === 'p1' || value === 'p2' || value === 'p3' ? value : undefined;
+}
+
+function parseChecklistInput(value: unknown): RoadmapChecklistInput[] | null {
+  if (!Array.isArray(value)) return null;
+  const entries: RoadmapChecklistInput[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) return null;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.label !== 'string' || typeof record.done !== 'boolean') return null;
+    entries.push({
+      label: record.label,
+      done: record.done,
+      evidence: typeof record.evidence === 'string' ? record.evidence : null,
+    });
+  }
+  return entries;
 }
 
 /** undefined = parâmetro ausente; null = inválido. */

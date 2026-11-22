@@ -13,6 +13,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/agenda', label: 'Agenda de Evolução', icon: '▦' },
   { to: '/files', label: 'Arquivos', icon: '▤' },
   { to: '/bindings', label: 'Amarrações', icon: '∞' },
+  { to: '/architect', label: 'Arquiteto', icon: '◇' },
   { to: '/settings', label: 'Configurações', icon: '⚙' },
 ];
 

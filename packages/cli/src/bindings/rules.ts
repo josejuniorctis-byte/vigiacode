@@ -1,7 +1,16 @@
 import path from 'node:path';
 import type { BindingRuleId, BindingsConfig } from '../config.js';
 import type { BindingStatus } from '../db/schema.js';
-import type { EndpointInfo, Finding, FrontendCall, ProjectMap, SourceRef } from './types.js';
+import { matchesAcceptedFalsePositive } from './accept.js';
+import type {
+  EndpointInfo,
+  Finding,
+  FindingRuleId,
+  FrontendCall,
+  ProjectMap,
+  RuleCoverage,
+  SourceRef,
+} from './types.js';
 import type { MatchContext } from './matcher.js';
 import { isGeneratedBindingFile } from './extractors/common.js';
 import {
@@ -104,13 +113,45 @@ export function evaluateRules(
   match: MatchContext,
   config: BindingsConfig,
 ): Finding[] {
+  return evaluateRulesDetailed(map, match, config).findings;
+}
+
+export interface RuleEvaluation {
+  findings: Finding[];
+  coverage: RuleCoverage[];
+  profile: BindingsConfig['profile'];
+  typedHttpClient: boolean;
+  effectiveRules: Record<BindingRuleId, boolean>;
+}
+
+/**
+ * Fontes que indicam um cliente HTTP tipado (wrapper estruturado) no front.
+ * `fetch` cru com URL dinâmica não conta: em projetos assim R5/R6 geram ruído.
+ */
+const TYPED_CLIENT_SOURCES = new Set(['axios', 'ky', 'http', 'owner']);
+
+export function hasTypedHttpClient(map: ProjectMap): boolean {
+  if (map.calls.some((call) => TYPED_CLIENT_SOURCES.has(call.source))) return true;
+  return map.files.some((file) =>
+    file.imports.some((item) =>
+      item.names.some((name) => ['axios', 'ky', 'got', 'superagent'].includes(name.toLowerCase())),
+    ),
+  );
+}
+
+export function evaluateRulesDetailed(
+  map: ProjectMap,
+  match: MatchContext,
+  config: BindingsConfig,
+): RuleEvaluation {
   const findings: Finding[] = [];
   const seen = new Set<string>();
   const pending = new Set<string>();
   const blockedEntities = new Set<string>();
+  const tracker = new CoverageTracker();
 
   const add = (finding: Finding): void => {
-    if (matchesAccepted(config.acceptedFalsePositives, finding)) return;
+    if (matchesAcceptedFalsePositive(config.acceptedFalsePositives, finding)) return;
     const key = `${finding.ruleId}\u0000${finding.layer}\u0000${finding.entity}\u0000${finding.field}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -122,47 +163,54 @@ export function evaluateRules(
     }
   };
 
+  const typedHttpClient = hasTypedHttpClient(map);
+  const lenientWithoutClient = config.profile === 'lenient' && !typedHttpClient;
+
   const rules = config.rules;
-  const enabled = (id: BindingRuleId): boolean => rules[id]?.enabled === true;
+  const enabled = (id: BindingRuleId): boolean => {
+    if (rules[id]?.enabled !== true) return false;
+    if (lenientWithoutClient && (id === 'R5' || id === 'R6')) return false;
+    return true;
+  };
   const severityFor = (id: BindingRuleId, fallback: BindingStatus): BindingStatus => {
     const configured = rules[id]?.severity;
     return configured ?? fallback;
   };
 
   if (enabled('R1') || enabled('R8')) {
-    applyFieldRules(map, match, config, add, enabled, severityFor);
+    applyFieldRules(map, match, config, add, enabled, severityFor, tracker);
   }
 
   if (enabled('R2')) {
-    applyR2(map, add, severityFor);
+    applyR2(map, add, severityFor, tracker);
   }
 
   if (enabled('R3')) {
-    applyR3(map, add, severityFor);
+    applyR3(map, add, severityFor, tracker);
   }
 
   if (enabled('R4')) {
-    applyR4(map, add, severityFor);
+    applyR4(map, add, severityFor, tracker);
   }
 
   if (enabled('R5')) {
-    applyR5(map, add, severityFor);
+    applyR5(map, add, severityFor, tracker);
   }
 
   if (enabled('R6')) {
-    applyR6(map, add, severityFor);
+    applyR6(map, add, severityFor, tracker);
   }
 
   if (enabled('R7')) {
-    applyR7(map, add, severityFor);
+    applyR7(map, add, severityFor, tracker);
   }
 
   if (enabled('R9')) {
-    applyR9(map, add, severityFor);
+    applyR9(map, add, severityFor, tracker);
   }
 
   if (enabled('R10')) {
-    applyR10(map, add, severityFor);
+    applyR10(map, add, severityFor, tracker);
   }
 
   // Amarrações verdes: campo presente e consistente nas três camadas.
@@ -185,6 +233,7 @@ export function evaluateRules(
       if (!backField) continue;
       if (!typesCompatible(backField.type, dbField.type)) continue;
 
+      tracker.evaluate('GREEN');
       if (
         blockedEntities.has(frontEntityName) ||
         blockedEntities.has(backEntity.name) ||
@@ -193,6 +242,7 @@ export function evaluateRules(
         pending.has(`${backEntity.name}\u0000${backField.name}`) ||
         pending.has(`${dbEntity.name}\u0000${dbField.name}`)
       ) {
+        tracker.ignore('GREEN');
         continue;
       }
 
@@ -212,7 +262,59 @@ export function evaluateRules(
     }
   }
 
-  return findings;
+  const coverage = tracker.snapshot(findings, rules, {
+    R5: lenientWithoutClient ? 'desligada: perfil lenient sem cliente HTTP tipado' : null,
+    R6: lenientWithoutClient ? 'desligada: perfil lenient sem cliente HTTP tipado' : null,
+  });
+
+  const effectiveRules = {} as Record<BindingRuleId, boolean>;
+  for (const id of Object.keys(rules) as BindingRuleId[]) {
+    effectiveRules[id] = enabled(id);
+  }
+
+  return {
+    findings,
+    coverage,
+    profile: config.profile,
+    typedHttpClient,
+    effectiveRules,
+  };
+}
+
+class CoverageTracker {
+  private readonly evaluated = new Map<FindingRuleId, number>();
+  private readonly ignored = new Map<FindingRuleId, number>();
+
+  evaluate(rule: FindingRuleId, amount = 1): void {
+    this.evaluated.set(rule, (this.evaluated.get(rule) ?? 0) + amount);
+  }
+
+  ignore(rule: FindingRuleId, amount = 1): void {
+    this.ignored.set(rule, (this.ignored.get(rule) ?? 0) + amount);
+  }
+
+  snapshot(
+    findings: Finding[],
+    rules: BindingsConfig['rules'],
+    notes: Partial<Record<BindingRuleId, string | null>>,
+  ): RuleCoverage[] {
+    const ids: FindingRuleId[] = [...Object.keys(rules), 'GREEN'] as FindingRuleId[];
+    return ids.map((ruleId) => {
+      const counts = { red: 0, yellow: 0, green: 0 };
+      for (const finding of findings) {
+        if (finding.ruleId === ruleId) counts[finding.status] += 1;
+      }
+      const enabled = ruleId === 'GREEN' ? true : rules[ruleId as BindingRuleId].enabled;
+      return {
+        ruleId,
+        enabled,
+        evaluated: this.evaluated.get(ruleId) ?? 0,
+        ignored: this.ignored.get(ruleId) ?? 0,
+        ...counts,
+        note: notes[ruleId as BindingRuleId] ?? null,
+      };
+    });
+  }
 }
 
 function applyFieldRules(
@@ -222,11 +324,20 @@ function applyFieldRules(
   add: (finding: Finding) => void,
   enabled: (id: BindingRuleId) => boolean,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   for (const [frontEntityName, frontEntity] of map.frontend) {
     if (frontEntity.fields.length === 0) continue;
-    if (isIgnoredFrontEntity(frontEntity)) continue;
-    if (isMockOnly(map, frontEntityName)) continue;
+    if (isIgnoredFrontEntity(frontEntity)) {
+      tracker.ignore('R1', frontEntity.fields.length);
+      tracker.ignore('R8', frontEntity.fields.length);
+      continue;
+    }
+    if (isMockOnly(map, frontEntityName)) {
+      tracker.ignore('R1', frontEntity.fields.length);
+      tracker.ignore('R8', frontEntity.fields.length);
+      continue;
+    }
 
     const backEntity = findMatchingEntity(map.backend, frontEntityName);
     const hasBackContract = Boolean(backEntity);
@@ -234,13 +345,18 @@ function applyFieldRules(
 
     for (const frontField of frontEntity.fields) {
       const link = matchedBackendLink(match, frontEntityName, frontField.name);
-      if (link) continue;
+      if (link) {
+        tracker.ignore('R1');
+        tracker.ignore('R8');
+        continue;
+      }
 
       const similar = backEntity
         ? similarBackendField(map, frontEntityName, frontField.name)
         : undefined;
 
       if (similar && enabled('R8')) {
+        tracker.evaluate('R8');
         add({
           ruleId: 'R8',
           layer: 'frontend',
@@ -260,16 +376,26 @@ function applyFieldRules(
       // Se a rota existe mas o extractor não achou DTO/campos no back-end, não
       // há evidência suficiente para afirmar que o campo falta. R1 fica
       // conservadora nesse caso (evita culpar o front por DTO não reconhecido).
-      if (backEntity && backEntity.fields.length === 0) continue;
+      if (backEntity && backEntity.fields.length === 0) {
+        tracker.ignore('R1');
+        continue;
+      }
 
       // R1 é sobre o contrato de ENTRADA: formulário/payload sempre contam.
       // Tipos/interfaces só entram quando a entidade tem DTO/rota no back-end
       // (ou quando o projeto liga `r1IncludeTypes` explicitamente).
       const isInput = frontField.source === 'form' || frontField.source === 'payload';
       const includeTypes = config.r1IncludeTypes !== false;
-      if (!isInput && !(includeTypes && (hasBackContract || hasCall))) continue;
-      if (GENERIC_PAYLOAD_KEYS.has(frontField.name)) continue;
+      if (!isInput && !(includeTypes && (hasBackContract || hasCall))) {
+        tracker.ignore('R1');
+        continue;
+      }
+      if (GENERIC_PAYLOAD_KEYS.has(frontField.name)) {
+        tracker.ignore('R1');
+        continue;
+      }
 
+      tracker.evaluate('R1');
       add({
         ruleId: 'R1',
         layer: 'backend',
@@ -293,6 +419,7 @@ function applyR2(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   if (map.database.size === 0) return;
 
@@ -301,17 +428,29 @@ function applyR2(
     // DTOs de resposta, projections e view models não são contratos de
     // persistência. R2 só compara quando a entidade espelha uma tabela e o
     // nome não indica uma projeção de leitura.
-    if (PROJECTION_NAME.test(backEntity.rawName)) continue;
+    if (PROJECTION_NAME.test(backEntity.rawName)) {
+      tracker.ignore('R2', backEntity.fields.length);
+      continue;
+    }
     const dbEntity = findMatchingEntity(map.database, backEntityName);
 
-    if (!dbEntity) continue;
+    if (!dbEntity) {
+      tracker.ignore('R2', backEntity.fields.length);
+      continue;
+    }
 
     for (const backField of backEntity.fields) {
+      tracker.evaluate('R2');
       const dbField = findMatchingField(dbEntity, backField.name);
       if (!dbField) {
-        if (INHERITED_COLUMNS.has(backField.name)) continue;
-        if (isProjectionRef(backField.ref.file)) continue;
-        if (isDerivedField(backField)) continue;
+        if (
+          INHERITED_COLUMNS.has(backField.name) ||
+          isProjectionRef(backField.ref.file) ||
+          isDerivedField(backField)
+        ) {
+          tracker.ignore('R2');
+          continue;
+        }
         add({
           ruleId: 'R2',
           layer: 'database',
@@ -349,18 +488,26 @@ function applyR3(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   if (map.migrationFiles.length === 0 || map.migrationColumns.size === 0) return;
 
   for (const [dbEntityName, dbEntity] of map.database) {
-    if (dbEntity.sources.length === 1 && dbEntity.sources[0] === 'migration') continue;
+    if (dbEntity.sources.length === 1 && dbEntity.sources[0] === 'migration') {
+      tracker.ignore('R3', dbEntity.fields.length);
+      continue;
+    }
     // Só compara entidades realmente mapeadas por ORM/schema; tipos de UI que
     // caíram no mapa de banco não são contrato de persistência.
-    if (!dbEntity.sources.some((source) => source === 'entity' || source === 'column')) continue;
+    if (!dbEntity.sources.some((source) => source === 'entity' || source === 'column')) {
+      tracker.ignore('R3', dbEntity.fields.length);
+      continue;
+    }
     const columns = map.migrationColumns.get(dbEntityName);
 
     if (!columns) {
       if (dbEntity.fields.length === 0) continue;
+      tracker.evaluate('R3');
       add({
         ruleId: 'R3',
         layer: 'database',
@@ -376,8 +523,12 @@ function applyR3(
     }
 
     for (const field of dbEntity.fields) {
+      tracker.evaluate('R3');
       if (columns.has(field.name)) continue;
-      if (INHERITED_COLUMNS.has(field.name)) continue;
+      if (INHERITED_COLUMNS.has(field.name)) {
+        tracker.ignore('R3');
+        continue;
+      }
       add({
         ruleId: 'R3',
         layer: 'database',
@@ -392,8 +543,12 @@ function applyR3(
     }
 
     for (const [fieldName, field] of columns) {
+      tracker.evaluate('R3');
       if (findMatchingField(dbEntity, fieldName)) continue;
-      if (INHERITED_COLUMNS.has(fieldName)) continue;
+      if (INHERITED_COLUMNS.has(fieldName)) {
+        tracker.ignore('R3');
+        continue;
+      }
       add({
         ruleId: 'R3',
         layer: 'database',
@@ -418,12 +573,17 @@ function applyR4(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   const seen = new Set<string>();
   for (const call of map.calls) {
     const key = `${call.method} ${call.path}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      tracker.ignore('R4');
+      continue;
+    }
     seen.add(key);
+    tracker.evaluate('R4');
     if (map.endpoints.some((endpoint) => routeMatches(call, endpoint))) continue;
 
     add({
@@ -444,13 +604,21 @@ function applyR5(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   const seen = new Set<string>();
   for (const endpoint of map.endpoints) {
-    if (endpoint.method === 'HEAD' || endpoint.method === 'OPTIONS') continue;
+    if (endpoint.method === 'HEAD' || endpoint.method === 'OPTIONS') {
+      tracker.ignore('R5');
+      continue;
+    }
     const key = `${endpoint.method} ${endpoint.path}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      tracker.ignore('R5');
+      continue;
+    }
     seen.add(key);
+    tracker.evaluate('R5');
     if (map.calls.some((call) => routeMatches(call, endpoint))) continue;
 
     add({
@@ -471,13 +639,18 @@ function applyR6(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   const endpointEntities = new Set(map.endpoints.map((endpoint) => endpoint.entity));
   const reported = new Set<string>();
 
   for (const [entityName, backEntity] of map.backend) {
     if (!endpointEntities.has(entityName)) continue;
-    if (reported.has(entityName)) continue;
+    if (reported.has(entityName)) {
+      tracker.ignore('R6');
+      continue;
+    }
+    tracker.evaluate('R6');
 
     const frontEntity = map.frontend.get(entityName);
     const calls = map.calls.filter((call) => call.entity === entityName);
@@ -521,6 +694,7 @@ function applyR7(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   const existing = new Set(map.files.map((file) => file.file));
   const definitions = new Set(map.definitions.keys());
@@ -557,10 +731,18 @@ function applyR7(
           '.gif',
         ].includes(extension)
       ) {
+        tracker.ignore('R7');
         continue;
       }
-      if (resolveLocalImport(extract.file, item.specifier, existing)) continue;
-      if (isGeneratedBindingFile(item.specifier)) continue;
+      if (resolveLocalImport(extract.file, item.specifier, existing)) {
+        tracker.ignore('R7');
+        continue;
+      }
+      tracker.evaluate('R7');
+      if (isGeneratedBindingFile(item.specifier)) {
+        tracker.ignore('R7');
+        continue;
+      }
 
       add({
         ruleId: 'R7',
@@ -577,7 +759,11 @@ function applyR7(
 
     for (const usage of extract.jsx) {
       const root = usage.name.split('.')[0] ?? usage.name;
-      if (known.has(root) || imported.has(root) || definitions.has(root)) continue;
+      if (known.has(root) || imported.has(root) || definitions.has(root)) {
+        tracker.ignore('R7');
+        continue;
+      }
+      tracker.evaluate('R7');
       add({
         ruleId: 'R7',
         layer: 'frontend',
@@ -597,7 +783,11 @@ function applyR7(
     const root = route.component.split('.')[0] ?? route.component;
     const fileImports = map.files.find((file) => file.file === route.ref.file)?.imports ?? [];
     const imported = fileImports.some((item) => item.names.includes(root));
-    if (imported || definitions.has(root)) continue;
+    if (imported || definitions.has(root)) {
+      tracker.ignore('R7');
+      continue;
+    }
+    tracker.evaluate('R7');
 
     add({
       ruleId: 'R7',
@@ -617,10 +807,14 @@ function applyR9(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   for (const [entityName, entity] of [...map.database, ...map.backend]) {
     for (const field of entity.fields) {
-      if (!looksMonetary(field.rawName) || !isFloatingPointType(field.rawType)) continue;
+      if (!looksMonetary(field.rawName) || !isFloatingPointType(field.rawType)) {
+        continue;
+      }
+      tracker.evaluate('R9');
       add({
         ruleId: 'R9',
         layer: entity.layer,
@@ -641,6 +835,7 @@ function applyR10(
   map: ProjectMap,
   add: (finding: Finding) => void,
   severityFor: (id: BindingRuleId, fallback: BindingStatus) => BindingStatus,
+  tracker: CoverageTracker,
 ): void {
   for (const extract of map.files) {
     const lower = extract.file.toLowerCase();
@@ -655,6 +850,12 @@ function applyR10(
       const toModule = moduleOf(resolved);
       const directRepository =
         isController && /repositor|repository|dao|db\//i.test(item.specifier);
+
+      if (!directRepository && (!fromModule || !toModule || fromModule === toModule)) {
+        tracker.ignore('R10');
+        continue;
+      }
+      tracker.evaluate('R10');
 
       if (directRepository) {
         add({
@@ -783,20 +984,6 @@ function isIgnoredFrontEntity(entity: { name: string; rawName: string }): boolea
   return /^(props|state|config|options|params|query|result|theme|style|event)s?$/.test(
     entity.name.toLowerCase(),
   );
-}
-
-function matchesAccepted(
-  accepted: string[],
-  finding: Pick<Finding, 'ruleId' | 'entity' | 'field'>,
-): boolean {
-  for (const pattern of accepted) {
-    const [rule, entity, field] = pattern.split(':');
-    if (!rule || rule !== finding.ruleId) continue;
-    if (entity && entity !== '*' && entity !== finding.entity) continue;
-    if (field && field !== '*' && field !== finding.field) continue;
-    return true;
-  }
-  return false;
 }
 
 /** Exposto para testes das regras. */

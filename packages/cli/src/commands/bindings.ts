@@ -20,7 +20,7 @@ import { logger } from '../utils/logger.js';
 
 export type FailOn = 'red' | 'yellow' | 'none';
 
-interface OpenedProject {
+export interface OpenedProject {
   opened: OpenedDatabase;
   config: VigiaCodeConfig;
   project: Project;
@@ -218,7 +218,7 @@ export async function runBindingsMatrix(options: BindingsMatrixOptions): Promise
   }
 }
 
-function openProject(cwd: string): OpenedProject | null {
+export function openProject(cwd: string): OpenedProject | null {
   const projectRoot = path.resolve(cwd);
   if (!configExists(projectRoot)) {
     logger.error('Este projeto ainda não foi inicializado.');

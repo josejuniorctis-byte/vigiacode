@@ -13,6 +13,7 @@ import {
 } from '../ai/index.js';
 import { createBindingsScanner, explainBinding } from '../bindings/index.js';
 import type { BindingsScanner } from '../bindings/index.js';
+import { Architect } from '../architect/index.js';
 import {
   configExists,
   effectiveModel,
@@ -22,6 +23,7 @@ import {
 } from '../config.js';
 import {
   applyMigrations,
+  countRoadmapItems,
   findProjectByRootPath,
   openDatabase,
   registerProject,
@@ -145,6 +147,35 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
     },
   });
 
+  const architect = new Architect({
+    db: opened.db,
+    project,
+    config,
+    provider: llmProvider,
+    logger: {
+      info: (message: string) => logger.detail(message),
+      warn: (message: string) => logger.warn(message),
+    },
+  });
+
+  // Mantém o roadmap em sincronia com cada scan e avisa o dashboard por SSE.
+  const runArchitect = (scanId: string | null, changedFiles?: readonly string[]): void => {
+    try {
+      const result = architect.generate({ scanId, changedFiles });
+      hub.publish({
+        type: 'roadmap',
+        scanId,
+        created: result.created,
+        reopened: result.reopened,
+        closed: result.closed,
+        counts: countRoadmapItems(opened.db, project.id),
+        items: result.items,
+      });
+    } catch (error) {
+      logger.warn(`Arquiteto: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const git = await GitRepository.open(projectRoot);
   let headHash: string | null = null;
   let branch: string | null = null;
@@ -205,6 +236,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
     config,
     gitInfo: { branch, commitHash: headHash },
     bindingsScanner,
+    architect,
     explainBinding: (binding) =>
       explainBinding({
         binding,
@@ -274,6 +306,14 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
               batchId: recorded.batchId,
               changedFiles: changes.map((change) => change.path),
             })
+            .then((result) => {
+              if (result) {
+                runArchitect(
+                  result.scan.id,
+                  changes.map((change) => change.path),
+                );
+              }
+            })
             .catch((error: unknown) => {
               logger.warn(
                 `Detector de amarrações: ${error instanceof Error ? error.message : String(error)}`,
@@ -314,6 +354,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
         `∞ Amarrações: ${counts.red}🔴 ${counts.yellow}🟡 ${counts.green}🟢 · ` +
           `${result.filesScanned} arquivo(s) analisado(s)`,
       );
+      runArchitect(result.scan.id);
     })
     .catch((error: unknown) => {
       logger.warn(

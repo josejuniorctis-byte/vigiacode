@@ -1,6 +1,7 @@
 import { countDiffStats } from '../ai/heuristic.js';
 import type { BindingsStreamMessage } from '../bindings/types.js';
-import type { ChangeEvent, ChangeEventLayer, ChangeType } from '../db/schema.js';
+import type { RoadmapItemView } from '../db/roadmap-repository.js';
+import type { ChangeEvent, ChangeEventLayer, ChangeType, RoadmapStatus } from '../db/schema.js';
 
 /** Evento sem o diff, usado em listagens e no stream SSE. */
 export interface PublicChangeEvent {
@@ -27,7 +28,18 @@ export interface SummaryStreamMessage {
   event: PublicChangeEvent;
 }
 
-export type EventStreamMessage = ChangeStreamMessage | SummaryStreamMessage | BindingsStreamMessage;
+export interface RoadmapStreamMessage {
+  type: 'roadmap';
+  scanId: string | null;
+  created: number;
+  reopened: number;
+  closed: number;
+  counts: Record<RoadmapStatus, number>;
+  items: RoadmapItemView[];
+}
+
+export type EventStreamMessage =
+  ChangeStreamMessage | SummaryStreamMessage | BindingsStreamMessage | RoadmapStreamMessage;
 
 export type EventStreamListener = (message: EventStreamMessage) => void;
 

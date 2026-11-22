@@ -39,6 +39,9 @@ export const BINDING_RULE_IDS = [
 ] as const;
 export type BindingRuleId = (typeof BINDING_RULE_IDS)[number];
 export type BindingRuleSeverity = 'red' | 'yellow';
+export type BindingProfile = 'strict' | 'balanced' | 'lenient';
+
+export const BINDING_PROFILES: readonly BindingProfile[] = ['strict', 'balanced', 'lenient'];
 
 export interface BindingRuleConfig {
   enabled: boolean;
@@ -47,6 +50,8 @@ export interface BindingRuleConfig {
 
 export interface BindingsConfig {
   rules: Record<BindingRuleId, BindingRuleConfig>;
+  /** Preset de ruído: strict liga tudo; balanced é o padrão; lenient adapta R5/R6. */
+  profile: BindingProfile;
   /** Padrões extras ignorados pelo detector (além de watch.ignore e .gitignore). */
   ignore: string[];
   /** Falsos positivos aceitos: "R1:user:phone" ou { rule, entity, field }. */
@@ -72,6 +77,31 @@ export const DEFAULT_BINDINGS_RULES: Record<BindingRuleId, BindingRuleConfig> = 
   R9: { enabled: false, severity: 'yellow' },
   R10: { enabled: false, severity: 'yellow' },
 };
+
+/** Presets de perfil. O campo `rules` explícito no JSON ainda sobrescreve cada regra. */
+export const BINDING_PROFILE_RULES: Record<
+  BindingProfile,
+  Record<BindingRuleId, BindingRuleConfig>
+> = {
+  strict: {
+    R1: { enabled: true, severity: 'red' },
+    R2: { enabled: true, severity: 'red' },
+    R3: { enabled: true, severity: 'yellow' },
+    R4: { enabled: true, severity: 'red' },
+    R5: { enabled: true, severity: 'yellow' },
+    R6: { enabled: true, severity: 'yellow' },
+    R7: { enabled: true, severity: 'red' },
+    R8: { enabled: true, severity: 'yellow' },
+    R9: { enabled: true, severity: 'yellow' },
+    R10: { enabled: true, severity: 'yellow' },
+  },
+  balanced: DEFAULT_BINDINGS_RULES,
+  lenient: { ...DEFAULT_BINDINGS_RULES },
+};
+
+export function isBindingProfile(value: unknown): value is BindingProfile {
+  return typeof value === 'string' && (BINDING_PROFILES as readonly string[]).includes(value);
+}
 
 export const BINDING_SCAN_TRIGGERS = ['manual', 'watch', 'start'] as const;
 export type BindingScanTrigger = (typeof BINDING_SCAN_TRIGGERS)[number];
@@ -107,13 +137,14 @@ export function isBindingRuleId(value: string): value is BindingRuleId {
 }
 
 /** Cópia profunda dos padrões para cada config. */
-export function createDefaultBindingsConfig(): BindingsConfig {
+export function createDefaultBindingsConfig(profile: BindingProfile = 'balanced'): BindingsConfig {
   const rules = {} as Record<BindingRuleId, BindingRuleConfig>;
   for (const id of BINDING_RULE_IDS) {
-    rules[id] = { ...DEFAULT_BINDINGS_RULES[id] };
+    rules[id] = { ...BINDING_PROFILE_RULES[profile][id] };
   }
   return {
     rules,
+    profile,
     ignore: [...DEFAULT_BINDINGS_IGNORE],
     acceptedFalsePositives: [],
     semanticMatching: true,
@@ -556,9 +587,10 @@ export function isOpenAiBaseUrl(baseUrl: string): boolean {
   }
 }
 
-/** Lê bindings do config, aplicando padrões e aceitando falsos positivos em objeto. */
+/** Lê bindings do config, aplicando o preset de perfil e falsos positivos em objeto. */
 export function parseBindingsConfig(value: Record<string, unknown>): BindingsConfig {
-  const defaults = createDefaultBindingsConfig();
+  const profile = isBindingProfile(value.profile) ? value.profile : 'balanced';
+  const defaults = createDefaultBindingsConfig(profile);
   const rawRules = (value.rules ?? {}) as Record<string, unknown>;
   const rules = {} as Record<BindingRuleId, BindingRuleConfig>;
 
@@ -584,6 +616,7 @@ export function parseBindingsConfig(value: Record<string, unknown>): BindingsCon
 
   return {
     rules,
+    profile,
     ignore: stringArray(value.ignore, defaults.ignore),
     acceptedFalsePositives,
     semanticMatching:
@@ -601,7 +634,8 @@ export function parseBindingsConfig(value: Record<string, unknown>): BindingsCon
   };
 }
 
-function normalizeFalsePositive(value: unknown): string | null {
+/** Normaliza um falso positivo aceito para "REGRA:entidade:campo". */
+export function normalizeFalsePositive(value: unknown): string | null {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;

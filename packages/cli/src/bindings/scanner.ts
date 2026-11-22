@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { LLMProvider } from '../ai/index.js';
 import type { VigiaCodeConfig } from '../config.js';
 import {
+  clearBindingFileCache,
   deleteBindingFileCache,
   finishBindingScan,
   insertBindingScan,
@@ -11,12 +12,15 @@ import {
   listBindingScans,
   putBindingFileCache,
   resolveBindingsNotSeen,
+  setBindingsRescanRequired,
   summarizeBindings,
+  syncAcceptedBindingFlags,
   upsertBinding,
   type BindingSummary,
 } from '../db/bindings-repository.js';
 import type { VigiaCodeDatabase } from '../db/client.js';
 import { bindingIdentityKey } from '../db/bindings-repository.js';
+import { findProjectById } from '../db/repository.js';
 import type { Binding, Project } from '../db/schema.js';
 import { IgnoreMatcher, createIgnoreMatcher } from '../watcher/ignore.js';
 import { isSupportedBindingFile } from './classify.js';
@@ -25,7 +29,7 @@ import { isGeneratedBindingFile } from './extractors/common.js';
 import { buildMatchContext } from './matcher.js';
 import { buildMatrix } from './matrix.js';
 import { combineExtracts } from './project-map.js';
-import { evaluateRules } from './rules.js';
+import { evaluateRulesDetailed } from './rules.js';
 import {
   formatRef,
   type BindingMatrix,
@@ -146,13 +150,20 @@ export class BindingsScanner {
     const trigger = options.trigger ?? 'manual';
     const projectRoot = this.project.rootPath;
 
-    const changed = options.changedFiles?.filter(
-      (file) =>
-        isSupportedBindingFile(file) &&
-        !isGeneratedBindingFile(file) &&
-        !this.bindingsIgnore.ignores(file),
-    );
-    if (options.changedFiles && (changed === undefined || changed.length === 0)) {
+    // A migration de correção marca o projeto para rescan completo. Nesse caso
+    // ignoramos a lista incremental e o cache: o banco será repopulado do zero.
+    const forceFull = findProjectById(this.db, this.project.id)?.bindingsRescanRequired === true;
+    if (forceFull) clearBindingFileCache(this.db, this.project.id);
+
+    const changed = forceFull
+      ? undefined
+      : options.changedFiles?.filter(
+          (file) =>
+            isSupportedBindingFile(file) &&
+            !isGeneratedBindingFile(file) &&
+            !this.bindingsIgnore.ignores(file),
+        );
+    if (!forceFull && options.changedFiles && (changed === undefined || changed.length === 0)) {
       return null;
     }
 
@@ -208,7 +219,8 @@ export class BindingsScanner {
         provider: this.provider,
         semanticMatching: this.config.bindings.semanticMatching,
       });
-      const findings = evaluateRules(map, match, this.config.bindings);
+      const evaluation = evaluateRulesDetailed(map, match, this.config.bindings);
+      const findings = evaluation.findings;
 
       const created: ScanBindingView[] = [];
       const seen = new Set<string>();
@@ -232,7 +244,18 @@ export class BindingsScanner {
       }
 
       const resolvedRows = resolveBindingsNotSeen(this.db, this.project.id, seen);
+      // A coluna accepted é derivada do config.json: ressincroniza a cada scan.
+      syncAcceptedBindingFlags(
+        this.db,
+        this.project.id,
+        this.config.bindings.acceptedFalsePositives,
+      );
       const matrix = buildMatrix(map, findings, scan.id);
+      const coverage = {
+        profile: evaluation.profile,
+        typedHttpClient: evaluation.typedHttpClient,
+        rules: evaluation.coverage,
+      };
       const finished = finishBindingScan(this.db, scan.id, {
         filesScanned,
         red: findings.filter((finding) => finding.status === 'red').length,
@@ -241,7 +264,9 @@ export class BindingsScanner {
         created: created.length,
         resolved: resolvedRows.length,
         matrixJson: JSON.stringify(matrix),
+        coverageJson: JSON.stringify(coverage),
       });
+      if (forceFull) setBindingsRescanRequired(this.db, this.project.id, false);
 
       const finishedScan = finished ?? scan;
       const summary = summarizeBindings(this.db, this.project.id, finishedScan);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { BindingsEvent, ChangeEvent } from '../types';
+import type { BindingsEvent, ChangeEvent, RoadmapEvent } from '../types';
 
 export type StreamStatus = 'connecting' | 'live' | 'offline';
 
@@ -7,9 +7,11 @@ export interface EventStreamHandlers {
   onEvent?: (event: ChangeEvent) => void;
   onSummary?: (event: ChangeEvent) => void;
   onBindings?: (event: BindingsEvent) => void;
+  onRoadmap?: (event: RoadmapEvent) => void;
 }
 
-type StreamMessage = { type: 'change' | 'summary'; event: ChangeEvent } | BindingsEvent;
+type StreamMessage =
+  { type: 'change' | 'summary'; event: ChangeEvent } | BindingsEvent | RoadmapEvent;
 
 /**
  * Conecta em /api/events/stream com reconexão automática e backoff exponencial.
@@ -67,6 +69,16 @@ export function useEventStream(handlers: EventStreamHandlers = {}): StreamStatus
       }
     };
 
+    const handleRoadmap = (event: Event): void => {
+      try {
+        const message = JSON.parse((event as MessageEvent<string>).data) as StreamMessage;
+        if (message.type !== 'roadmap') return;
+        handlersRef.current.onRoadmap?.(message);
+      } catch {
+        // Evento malformado não derruba o stream.
+      }
+    };
+
     function connect(): void {
       if (stopped) return;
       setStatus('connecting');
@@ -93,6 +105,7 @@ export function useEventStream(handlers: EventStreamHandlers = {}): StreamStatus
       source.addEventListener('change', handleMessage('change'));
       source.addEventListener('summary', handleMessage('summary'));
       source.addEventListener('bindings', handleBindings);
+      source.addEventListener('roadmap', handleRoadmap);
     }
 
     connect();

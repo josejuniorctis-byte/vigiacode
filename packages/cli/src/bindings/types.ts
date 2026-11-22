@@ -1,4 +1,4 @@
-import type { BindingRuleId } from '../config.js';
+import type { BindingProfile, BindingRuleId } from '../config.js';
 import type { BindingLayer, BindingScan, BindingStatus } from '../db/schema.js';
 import type { BindingSummary } from '../db/bindings-repository.js';
 import type { NormalizedType } from './names.js';
@@ -140,6 +140,26 @@ export interface Finding {
   backRef?: SourceRef;
   dbRef?: SourceRef;
   suggestion?: string;
+}
+
+/** Cobertura de uma regra em um scan: avaliáveis × ignoradas + resultados. */
+export interface RuleCoverage {
+  ruleId: FindingRuleId;
+  enabled: boolean;
+  evaluated: number;
+  ignored: number;
+  red: number;
+  yellow: number;
+  green: number;
+  /** Motivo quando a regra foi desligada por perfil/config. */
+  note: string | null;
+}
+
+/** Relatório de cobertura congelado no scan. */
+export interface BindingCoverageReport {
+  profile: BindingProfile;
+  typedHttpClient: boolean;
+  rules: RuleCoverage[];
 }
 
 export type MatrixCellState = 'integrated' | 'partial' | 'local' | 'missing' | 'empty';

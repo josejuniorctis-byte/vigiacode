@@ -31,6 +31,13 @@ export const projects = sqliteTable(
     name: text('name').notNull(),
     rootPath: text('root_path').notNull(),
     createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    /**
+     * Marca que o próximo scan deve ser completo (cache de extração inválido).
+     * A migration que corrige dados legados liga este flag em todos os projetos.
+     */
+    bindingsRescanRequired: integer('bindings_rescan_required', { mode: 'boolean' })
+      .notNull()
+      .default(false),
   },
   (table) => [uniqueIndex('projects_root_path_idx').on(table.rootPath)],
 );
@@ -155,6 +162,8 @@ export const bindingScans = sqliteTable(
     batchId: text('batch_id'),
     /** Matriz entidade × camadas congelada neste scan (JSON). */
     matrixJson: text('matrix_json'),
+    /** Cobertura por regra: avaliáveis × ignoradas + contagens (JSON). */
+    coverageJson: text('coverage_json'),
     error: text('error'),
   },
   (table) => [
@@ -180,9 +189,87 @@ export const bindingFileCache = sqliteTable(
     data: text('data').notNull(),
     updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
   },
+  (table) => [uniqueIndex('binding_file_cache_path_idx').on(table.projectId, table.filePath)],
+);
+
+export const ROADMAP_KINDS = ['feature', 'fix', 'debt', 'binding', 'test', 'doc'] as const;
+export type RoadmapKind = (typeof ROADMAP_KINDS)[number];
+
+export const ROADMAP_STATUSES = ['todo', 'doing', 'done', 'blocked'] as const;
+export type RoadmapStatus = (typeof ROADMAP_STATUSES)[number];
+
+export const ROADMAP_PRIORITIES = ['p0', 'p1', 'p2', 'p3'] as const;
+export type RoadmapPriority = (typeof ROADMAP_PRIORITIES)[number];
+
+export const ROADMAP_SOURCES = ['manual', 'binding', 'git', 'ai', 'todo-comment'] as const;
+export type RoadmapSource = (typeof ROADMAP_SOURCES)[number];
+
+/**
+ * Item do roadmap vivo gerado pelo Arquiteto (Etapa 5).
+ *
+ * Itens manuais nunca são fechados nem apagados automaticamente; os gerados
+ * carregam `source_ref` determinístico para permitir upsert e fechamento por
+ * evidência (scan/commit).
+ */
+export const roadmapItems = sqliteTable(
+  'roadmap_items',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    kind: text('kind', { enum: ROADMAP_KINDS }).notNull(),
+    status: text('status', { enum: ROADMAP_STATUSES }).notNull().default('todo'),
+    priority: text('priority', { enum: ROADMAP_PRIORITIES }).notNull().default('p2'),
+    source: text('source', { enum: ROADMAP_SOURCES }).notNull().default('manual'),
+    sourceRef: text('source_ref'),
+    module: text('module'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+    doneAt: text('done_at'),
+    /** Evidências verificáveis (referências arquivo:linha, scanId, commit). */
+    evidenceJson: text('evidence_json'),
+    /** Checklist de pronto: [{ label, done, evidence? }]. */
+    checklistJson: text('checklist_json'),
+  },
   (table) => [
-    uniqueIndex('binding_file_cache_path_idx').on(table.projectId, table.filePath),
-    index('binding_file_cache_project_idx').on(table.projectId),
+    index('roadmap_items_project_idx').on(table.projectId),
+    index('roadmap_items_project_status_idx').on(table.projectId, table.status),
+    index('roadmap_items_project_priority_idx').on(table.projectId, table.priority),
+    index('roadmap_items_project_kind_idx').on(table.projectId, table.kind),
+    index('roadmap_items_project_module_idx').on(table.projectId, table.module),
+    index('roadmap_items_source_lookup_idx').on(
+      table.projectId,
+      table.kind,
+      table.source,
+      table.sourceRef,
+    ),
+  ],
+);
+
+/** Vínculos de um item do roadmap com amarração, arquivo ou commit. */
+export const roadmapLinks = sqliteTable(
+  'roadmap_links',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => randomUUID()),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => roadmapItems.id, { onDelete: 'cascade' }),
+    bindingId: text('binding_id').references(() => bindings.id, { onDelete: 'set null' }),
+    filePath: text('file_path'),
+    commitSha: text('commit_sha'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (table) => [
+    index('roadmap_links_item_idx').on(table.itemId),
+    index('roadmap_links_binding_idx').on(table.bindingId),
+    index('roadmap_links_file_idx').on(table.filePath),
   ],
 );
 
@@ -194,8 +281,9 @@ export const schema = {
   bindings,
   bindingScans,
   bindingFileCache,
+  roadmapItems,
+  roadmapLinks,
 };
-
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type Snapshot = typeof snapshots.$inferSelect;
@@ -211,3 +299,13 @@ export type BindingScan = typeof bindingScans.$inferSelect;
 export type NewBindingScan = typeof bindingScans.$inferInsert;
 export type BindingFileCache = typeof bindingFileCache.$inferSelect;
 export type NewBindingFileCache = typeof bindingFileCache.$inferInsert;
+export type RoadmapItem = typeof roadmapItems.$inferSelect;
+export type NewRoadmapItem = typeof roadmapItems.$inferInsert;
+export type RoadmapLink = typeof roadmapLinks.$inferSelect;
+export type NewRoadmapLink = typeof roadmapLinks.$inferInsert;
+
+export interface RoadmapChecklistEntry {
+  label: string;
+  done: boolean;
+  evidence?: string | null;
+}

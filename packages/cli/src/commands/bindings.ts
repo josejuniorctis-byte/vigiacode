@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createProvider, type LLMProvider } from '../ai/index.js';
 import { createBindingsScanner } from '../bindings/index.js';
 import type { MatrixCell, MatrixRow } from '../bindings/types.js';
-import { configExists, readConfig, resolveConfigPaths, type CodeAnchorConfig } from '../config.js';
+import { configExists, readConfig, resolveConfigPaths, type VigiaCodeConfig } from '../config.js';
 import {
   applyMigrations,
   findProjectByRootPath,
@@ -11,7 +11,7 @@ import {
   listBindingScans,
   openDatabase,
   summarizeBindings,
-  type CodeAnchorDatabase,
+  type VigiaCodeDatabase,
   type OpenedDatabase,
 } from '../db/index.js';
 import type { Binding, BindingLayer, BindingStatus, Project } from '../db/schema.js';
@@ -22,7 +22,7 @@ export type FailOn = 'red' | 'yellow' | 'none';
 
 interface OpenedProject {
   opened: OpenedDatabase;
-  config: CodeAnchorConfig;
+  config: VigiaCodeConfig;
   project: Project;
 }
 
@@ -46,12 +46,12 @@ export interface BindingsMatrixOptions {
   cwd: string;
 }
 
-/** `codeanchor bindings scan`: scan completo com exit code para CI. */
+/** `vigiacode bindings scan`: scan completo com exit code para CI. */
 export async function runBindingsScan(options: BindingsScanOptions): Promise<void> {
-  logger.intro('CodeAnchor · bindings scan');
+  logger.intro('VigiaCode · bindings scan');
   const envLoad = loadProjectEnv(path.resolve(options.cwd));
   if (envLoad.loaded.length > 0) {
-    logger.detail(`.codeanchor/.env carregado (${envLoad.loaded.length} variável(is)).`);
+    logger.detail(`.vigiacode/.env carregado (${envLoad.loaded.length} variável(is)).`);
   }
 
   const context = openProject(options.cwd);
@@ -70,7 +70,21 @@ export async function runBindingsScan(options: BindingsScanOptions): Promise<voi
   });
 
   try {
-    const result = await scanner.scan({ trigger: 'manual' });
+    // Progresso a cada ~10% para repositórios grandes.
+    logger.event('Analisando…');
+    let lastPercent = -1;
+    const result = await scanner.scan({
+      trigger: 'manual',
+      onProgress: (progress) => {
+        const percent =
+          progress.total === 0 ? 100 : Math.floor((progress.scanned / progress.total) * 100);
+        if (percent < lastPercent + 10 && progress.scanned < progress.total) return;
+        lastPercent = percent;
+        logger.detail(
+          `Scan ${percent}% · ${progress.scanned}/${progress.total} arquivo(s) — ${progress.file}`,
+        );
+      },
+    });
     if (!result) {
       logger.info('Nenhum arquivo suportado encontrado para analisar.');
       return;
@@ -103,7 +117,7 @@ export async function runBindingsScan(options: BindingsScanOptions): Promise<voi
     }
 
     logger.blank();
-    logger.hint('Detalhes: codeanchor bindings list · matriz: codeanchor bindings matrix');
+    logger.hint('Detalhes: vigiacode bindings list · matriz: vigiacode bindings matrix');
 
     applyExitCode(options.failOn ?? 'red', summary.red, summary.yellow);
   } finally {
@@ -111,9 +125,9 @@ export async function runBindingsScan(options: BindingsScanOptions): Promise<voi
   }
 }
 
-/** `codeanchor bindings list`: lista filtrável com cores. */
+/** `vigiacode bindings list`: lista filtrável com cores. */
 export async function runBindingsList(options: BindingsListOptions): Promise<void> {
-  logger.intro('CodeAnchor · bindings list');
+  logger.intro('VigiaCode · bindings list');
   const context = openProject(options.cwd);
   if (!context) return;
 
@@ -136,7 +150,7 @@ export async function runBindingsList(options: BindingsListOptions): Promise<voi
     if (bindings.length === 0) {
       logger.blank();
       logger.info('Nada por aqui com esses filtros.');
-      logger.hint('codeanchor bindings scan  # roda a análise completa');
+      logger.hint('vigiacode bindings scan  # roda a análise completa');
       return;
     }
 
@@ -158,9 +172,9 @@ export async function runBindingsList(options: BindingsListOptions): Promise<voi
   }
 }
 
-/** `codeanchor bindings matrix`: tabela entidade × camadas. */
+/** `vigiacode bindings matrix`: tabela entidade × camadas. */
 export async function runBindingsMatrix(options: BindingsMatrixOptions): Promise<void> {
-  logger.intro('CodeAnchor · bindings matrix');
+  logger.intro('VigiaCode · bindings matrix');
   const context = openProject(options.cwd);
   if (!context) return;
 
@@ -169,7 +183,7 @@ export async function runBindingsMatrix(options: BindingsMatrixOptions): Promise
     const scan = scans[0];
     if (!scan?.matrixJson) {
       logger.warn('Nenhum scan registrado ainda.');
-      logger.hint('codeanchor bindings scan');
+      logger.hint('vigiacode bindings scan');
       return;
     }
 
@@ -208,7 +222,7 @@ function openProject(cwd: string): OpenedProject | null {
   const projectRoot = path.resolve(cwd);
   if (!configExists(projectRoot)) {
     logger.error('Este projeto ainda não foi inicializado.');
-    logger.hint('Rode "codeanchor init" na raiz do projeto.');
+    logger.hint('Rode "vigiacode init" na raiz do projeto.');
     process.exitCode = 1;
     return null;
   }
@@ -217,7 +231,7 @@ function openProject(cwd: string): OpenedProject | null {
   const paths = resolveConfigPaths(projectRoot, config.database.file);
   if (!existsSync(paths.databaseFile)) {
     logger.error('Banco local não encontrado.');
-    logger.hint('Rode "codeanchor init" para criar o banco e aplicar as migrations.');
+    logger.hint('Rode "vigiacode init" para criar o banco e aplicar as migrations.');
     process.exitCode = 1;
     return null;
   }
@@ -228,7 +242,7 @@ function openProject(cwd: string): OpenedProject | null {
     const project = findProjectByRootPath(opened.db, projectRoot);
     if (!project) {
       logger.error('Projeto não encontrado no banco local.');
-      logger.hint('Rode "codeanchor init" novamente.');
+      logger.hint('Rode "vigiacode init" novamente.');
       opened.close();
       process.exitCode = 1;
       return null;
@@ -242,7 +256,7 @@ function openProject(cwd: string): OpenedProject | null {
   }
 }
 
-function createSemanticProvider(config: CodeAnchorConfig): LLMProvider | null {
+function createSemanticProvider(config: VigiaCodeConfig): LLMProvider | null {
   if (config.llm.provider === 'none') return null;
   try {
     return createProvider(config.llm);
@@ -319,4 +333,4 @@ function truncate(value: string, width: number): string {
 }
 
 /** Repositório exposto apenas para tipagem em testes de comando. */
-export type { CodeAnchorDatabase };
+export type { VigiaCodeDatabase };

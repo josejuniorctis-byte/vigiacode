@@ -6,7 +6,7 @@ import {
   openDatabase,
   registerProject,
   type ChangeEvent,
-  type CodeAnchorDatabase,
+  type VigiaCodeDatabase,
   type Project,
 } from '../db/index.js';
 import type { EventStreamMessage } from '../server/hub.js';
@@ -16,7 +16,7 @@ import type { GitRepository } from '../git/index.js';
 import { ChangeRecorder } from './recorder.js';
 
 interface RecorderFixture {
-  db: CodeAnchorDatabase;
+  db: VigiaCodeDatabase;
   project: Project;
   hub: EventHub;
   messages: EventStreamMessage[];

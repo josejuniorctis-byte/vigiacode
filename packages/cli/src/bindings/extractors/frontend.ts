@@ -133,7 +133,7 @@ export const frontendExtractor: LayerExtractor = {
 
       if (ts.isJsxAttribute(node)) {
         const name = node.name.getText(sourceFile);
-        if (name === 'name') {
+        if (name === 'name' && !isUiOnlyInput(node, sourceFile)) {
           const value = stringValue(node.initializer);
           if (value) addFormField(value, lineOf(sourceFile, node));
         }
@@ -159,6 +159,24 @@ export const frontendExtractor: LayerExtractor = {
     return output;
   },
 };
+
+/** Radio/checkbox/botões têm `name` de grupo de UI, não campo de formulário. */
+function isUiOnlyInput(node: ts.JsxAttribute, sourceFile: ts.SourceFile): boolean {
+  const element: ts.Node | undefined = node.parent?.parent;
+  if (!element) return false;
+  if (!ts.isJsxOpeningElement(element) && !ts.isJsxSelfClosingElement(element)) return false;
+  if (element.tagName.getText(sourceFile).toLowerCase() !== 'input') return false;
+
+  for (const attribute of element.attributes.properties) {
+    if (!ts.isJsxAttribute(attribute)) continue;
+    if (attribute.name.getText(sourceFile) !== 'type') continue;
+    const type = stringValue(attribute.initializer)?.toLowerCase();
+    if (type && ['radio', 'checkbox', 'button', 'submit', 'reset', 'image'].includes(type)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function findFormEntity(sourceFile: ts.SourceFile): string | null {
   let found: string | null = null;
@@ -283,6 +301,23 @@ function handleCall(
   }
 }
 
+/**
+ * Extrai a parte literal de uma URL montada com `+`
+ * (`base + "/api/users"` → `/api/users`). Variáveis são descartadas.
+ */
+function urlValue(node: ts.Node | undefined): string | null {
+  if (!node) return null;
+  const direct = stringValue(node);
+  if (direct !== null) return direct;
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = urlValue(node.left) ?? '';
+    const right = urlValue(node.right) ?? '';
+    return left + right || null;
+  }
+  if (ts.isParenthesizedExpression(node)) return urlValue(node.expression);
+  return null;
+}
+
 function detectHttpCall(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -339,7 +374,7 @@ function detectHttpCall(
   }
 
   if (!source || !urlNode) return null;
-  const rawPath = stringValue(urlNode);
+  const rawPath = urlValue(urlNode);
   if (!rawPath || rawPath.length === 0) return null;
   if (/^https?:\/\//i.test(rawPath) && !/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(rawPath)) {
     return null;

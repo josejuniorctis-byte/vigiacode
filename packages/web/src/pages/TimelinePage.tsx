@@ -93,7 +93,7 @@ export function TimelinePage() {
         <EmptyState
           icon="⚠"
           title="Não foi possível carregar a linha do tempo"
-          description="Confira se o servidor do CodeAnchor está rodando em localhost:4317."
+          description="Confira se o servidor do VigiaCode está rodando em localhost:4317."
           action={
             <button type="button" className="btn" onClick={() => void refetch()}>
               Tentar de novo
@@ -103,7 +103,7 @@ export function TimelinePage() {
       ) : batches.length === 0 ? (
         <EmptyState
           title="Nenhum lote por aqui"
-          description="Rode codeanchor start e edite alguns arquivos. Os lotes aparecem aqui em tempo real."
+          description="Rode vigiacode start e edite alguns arquivos. Os lotes aparecem aqui em tempo real."
           action={
             <button type="button" className="btn" onClick={() => void refetch()}>
               Atualizar

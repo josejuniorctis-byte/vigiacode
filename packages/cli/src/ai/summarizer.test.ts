@@ -27,7 +27,7 @@ function ollamaConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
 }
 
 afterEach(() => {
-  delete process.env.CODEANCHOR_API_KEY;
+  delete process.env.VIGIACODE_API_KEY;
 });
 
 describe('sumário heurístico', () => {
@@ -135,7 +135,7 @@ describe('resumos com IA', () => {
         baseUrl: 'https://api.openai.com/v1',
         timeoutMs: 1000,
       },
-      { fetchImpl, env: { CODEANCHOR_API_KEY: 'sk-teste' } },
+      { fetchImpl, env: { VIGIACODE_API_KEY: 'sk-teste' } },
     );
 
     const summary = await summarizer.summarize(input);
@@ -162,7 +162,7 @@ describe('resumos com IA', () => {
     const summary = await summarizer.summarize(input);
 
     expect(summary).toContain('1 arquivo alterado');
-    expect(warnings.some((message) => message.includes('CODEANCHOR_API_KEY'))).toBe(true);
+    expect(warnings.some((message) => message.includes('VIGIACODE_API_KEY'))).toBe(true);
     expect(warnings.some((message) => message.includes('OPENAI_API_KEY'))).toBe(true);
   });
 

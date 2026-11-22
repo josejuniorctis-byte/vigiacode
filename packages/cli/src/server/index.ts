@@ -11,9 +11,9 @@ import {
   effectiveModel,
   isBindingRuleId,
   providerDefaults,
-  type CodeAnchorConfig,
+  type VigiaCodeConfig,
 } from '../config.js';
-import type { CodeAnchorDatabase } from '../db/client.js';
+import type { VigiaCodeDatabase } from '../db/client.js';
 import {
   CHANGE_EVENT_LAYERS,
   acceptBinding,
@@ -43,7 +43,7 @@ export interface GitInfo {
 }
 
 export interface CreateServerOptions {
-  db: CodeAnchorDatabase;
+  db: VigiaCodeDatabase;
   project: Project;
   version: string;
   /** Caminho do build de packages/web/dist (ou null quando ainda não existe). */
@@ -55,7 +55,7 @@ export interface CreateServerOptions {
   /** Status da IA para GET /api/ai/status. */
   aiStatus?: AiStatusTracker;
   /** Configuração ativa (para GET /api/config e POST /api/ai/test). */
-  config?: CodeAnchorConfig;
+  config?: VigiaCodeConfig;
   /** Branch/commit atuais para o cabeçalho do dashboard. */
   gitInfo?: GitInfo;
   /** Detector de amarrações (Etapa 4). Sem ele as rotas de leitura ainda funcionam. */
@@ -71,7 +71,7 @@ const DEFAULT_AI_STATUS: AiStatusSnapshot = {
   lastHealthCheck: null,
 };
 
-/** Raiz do pacote codeanchor (funciona a partir de src/ e de dist/). */
+/** Raiz do pacote vigiacode (funciona a partir de src/ e de dist/). */
 export function packageRoot(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(here, '../..');
@@ -80,7 +80,7 @@ export function packageRoot(): string {
 /** Procura o build do front-end sem depender do cwd do usuário. */
 export function resolveWebDistPath(): string | null {
   const candidates = [
-    process.env.CODEANCHOR_WEB_DIST,
+    process.env.VIGIACODE_WEB_DIST,
     path.resolve(packageRoot(), '../web/dist'),
     path.resolve(packageRoot(), 'web'),
   ];
@@ -99,7 +99,7 @@ function fallbackPage(projectName: string): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CodeAnchor</title>
+    <title>VigiaCode</title>
     <style>
       :root { color-scheme: dark; }
       body {
@@ -120,7 +120,7 @@ function fallbackPage(projectName: string): string {
   <body>
     <main>
       <div class="mark">⚓</div>
-      <h1>CodeAnchor rodando</h1>
+      <h1>VigiaCode rodando</h1>
       <p>Projeto <strong>${escapeHtml(projectName)}</strong> — API local ativa.</p>
       <p>A interface web ainda não foi buildada. Na raiz do monorepo, rode <code>pnpm build</code> e reinicie o servidor.</p>
       <p>Health check: <code>/api/health</code></p>
@@ -165,7 +165,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     const project = requireProject();
     if (!project) {
       return reply.code(404).send({
-        error: 'Projeto não encontrado no banco local. Rode "codeanchor init" novamente.',
+        error: 'Projeto não encontrado no banco local. Rode "vigiacode init" novamente.',
       });
     }
     const latestSnapshot = getLatestSnapshot(options.db, project.id);
@@ -201,7 +201,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
         provider: providerName,
         model,
         elapsedMs: 0,
-        response: 'Provider "none": o CodeAnchor usa resumo heurístico local.',
+        response: 'Provider "none": o VigiaCode usa resumo heurístico local.',
       };
     }
 
@@ -223,7 +223,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     const started = Date.now();
     try {
       const answer = await provider.complete(
-        'Responda em uma frase curta, em português: qual é o objetivo do CodeAnchor?',
+        'Responda em uma frase curta, em português: qual é o objetivo do VigiaCode?',
         { system: 'Você é um assistente técnico objetivo. Responda em português do Brasil.' },
       );
       return {
@@ -255,7 +255,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
       'X-Accel-Buffering': 'no',
     });
     reply.raw.write('retry: 3000\n');
-    reply.raw.write(': conectado ao CodeAnchor\n\n');
+    reply.raw.write(': conectado ao VigiaCode\n\n');
 
     const unsubscribe = hub.subscribe((message) => {
       if (reply.raw.writableEnded) return;
@@ -281,7 +281,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     const project = requireProject();
     if (!project) {
       return reply.code(404).send({
-        error: 'Projeto não encontrado no banco local. Rode "codeanchor init" novamente.',
+        error: 'Projeto não encontrado no banco local. Rode "vigiacode init" novamente.',
       });
     }
 
@@ -302,7 +302,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     const project = requireProject();
     if (!project) {
       return reply.code(404).send({
-        error: 'Projeto não encontrado no banco local. Rode "codeanchor init" novamente.',
+        error: 'Projeto não encontrado no banco local. Rode "vigiacode init" novamente.',
       });
     }
 
@@ -356,7 +356,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     const project = requireProject();
     if (!project) {
       return reply.code(404).send({
-        error: 'Projeto não encontrado no banco local. Rode "codeanchor init" novamente.',
+        error: 'Projeto não encontrado no banco local. Rode "vigiacode init" novamente.',
       });
     }
     return { snapshots: listSnapshots(options.db, project.id) };
@@ -366,7 +366,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     const project = requireProject();
     if (!project) {
       return reply.code(404).send({
-        error: 'Projeto não encontrado no banco local. Rode "codeanchor init" novamente.',
+        error: 'Projeto não encontrado no banco local. Rode "vigiacode init" novamente.',
       });
     }
     return getProjectStats(options.db, project.id);
@@ -526,7 +526,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
     const project = requireProject();
     if (!project) {
       return reply.code(404).send({
-        error: 'Projeto não encontrado no banco local. Rode "codeanchor init" novamente.',
+        error: 'Projeto não encontrado no banco local. Rode "vigiacode init" novamente.',
       });
     }
 
@@ -586,7 +586,7 @@ export async function createServer(options: CreateServerOptions): Promise<Fastif
 
 function projectNotFound(reply: FastifyReply) {
   return reply.code(404).send({
-    error: 'Projeto não encontrado no banco local. Rode "codeanchor init" novamente.',
+    error: 'Projeto não encontrado no banco local. Rode "vigiacode init" novamente.',
   });
 }
 
@@ -677,7 +677,7 @@ function parseIsoDate(value: unknown): string | null | undefined {
   return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
 }
 
-function publicConfig(config: CodeAnchorConfig): Record<string, unknown> {
+function publicConfig(config: VigiaCodeConfig): Record<string, unknown> {
   return {
     project: { name: config.project.name, rootPath: config.project.rootPath },
     watch: config.watch,

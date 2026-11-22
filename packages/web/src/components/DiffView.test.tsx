@@ -21,7 +21,7 @@ describe('DiffView', () => {
     expect(screen.getByText('const a = 1;')).toBeInTheDocument();
     expect(screen.getAllByTestId('diff-add').length).toBe(1);
     expect(screen.getAllByTestId('diff-del').length).toBe(1);
-    expect(screen.getByText(/Diff truncado pelo CodeAnchor/)).toBeInTheDocument();
+    expect(screen.getByText(/Diff truncado pelo VigiaCode/)).toBeInTheDocument();
   });
 
   it('calcula números das colunas antiga/nova', () => {

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import type { CodeAnchorDatabase } from './client.js';
+import type { VigiaCodeDatabase } from './client.js';
 
 /**
  * As migrations SQL são geradas pelo drizzle-kit em `packages/cli/drizzle/`.
@@ -21,10 +21,10 @@ export function hasMigrations(folder: string = migrationsFolder()): boolean {
 }
 
 /** Aplica todas as migrations pendentes. Idempotente. */
-export function applyMigrations(db: CodeAnchorDatabase, folder: string = migrationsFolder()): void {
+export function applyMigrations(db: VigiaCodeDatabase, folder: string = migrationsFolder()): void {
   if (!hasMigrations(folder)) {
     throw new Error(
-      `Migrations não encontradas em ${folder}. Rode "pnpm --filter codeanchor db:generate" para gerá-las.`,
+      `Migrations não encontradas em ${folder}. Rode "pnpm --filter vigiacode db:generate" para gerá-las.`,
     );
   }
 

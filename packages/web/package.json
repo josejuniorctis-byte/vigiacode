@@ -1,9 +1,9 @@
 {
-  "name": "@codeanchor/web",
+  "name": "@vigiacode/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Interface web do CodeAnchor — dashboard da Agenda de Evolução.",
+  "description": "Interface web do VigiaCode — dashboard da Agenda de Evolução.",
   "license": "MIT",
   "scripts": {
     "dev": "vite",

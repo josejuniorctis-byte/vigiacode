@@ -142,7 +142,7 @@ export function truncateDiff(diff: string, maxBytes: number): GitDiff {
   const size = Buffer.byteLength(diff, 'utf8');
   if (size <= maxBytes) return { diff, truncated: false };
 
-  const marker = `\n\n[diff truncado pelo CodeAnchor: ${size - maxBytes} bytes omitidos]\n`;
+  const marker = `\n\n[diff truncado pelo VigiaCode: ${size - maxBytes} bytes omitidos]\n`;
   const budget = Math.max(0, maxBytes - Buffer.byteLength(marker, 'utf8'));
   const sliced = Buffer.from(diff, 'utf8').subarray(0, budget).toString('utf8');
 

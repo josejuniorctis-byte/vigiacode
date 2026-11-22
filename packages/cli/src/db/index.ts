@@ -4,7 +4,7 @@
  */
 export { openDatabase } from './client.js';
 export type {
-  CodeAnchorDatabase,
+  VigiaCodeDatabase,
   OpenDatabaseOptions,
   OpenedDatabase,
   SqliteConnection,

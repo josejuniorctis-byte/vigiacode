@@ -2,9 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /** Nome do diretório de estado local criado na raiz do projeto do usuário. */
-export const CONFIG_DIR_NAME = '.codeanchor';
+export const CONFIG_DIR_NAME = '.vigiacode';
+/** Diretório antigo, aceito para projetos já inicializados como CodeAnchor. */
+export const LEGACY_CONFIG_DIR_NAME = '.codeanchor';
 export const CONFIG_FILE_NAME = 'config.json';
-export const DATABASE_FILE_NAME = 'codeanchor.db';
+export const DATABASE_FILE_NAME = 'vigiacode.db';
+export const LEGACY_DATABASE_FILE_NAME = 'codeanchor.db';
 export const ENV_FILE_NAME = '.env';
 
 /** Porta padrão da API/interface local. */
@@ -50,6 +53,11 @@ export interface BindingsConfig {
   acceptedFalsePositives: string[];
   /** Segunda fase do matcher (sinônimos heurísticos + LLM quando configurado). */
   semanticMatching: boolean;
+  /**
+   * Inclui campos declarados apenas em tipos/interfaces do front na regra R1.
+   * Desligue em projetos com muitos tipos de resposta/UI para reduzir ruído.
+   */
+  r1IncludeTypes: boolean;
 }
 
 export const DEFAULT_BINDINGS_RULES: Record<BindingRuleId, BindingRuleConfig> = {
@@ -68,6 +76,32 @@ export const DEFAULT_BINDINGS_RULES: Record<BindingRuleId, BindingRuleConfig> = 
 export const BINDING_SCAN_TRIGGERS = ['manual', 'watch', 'start'] as const;
 export type BindingScanTrigger = (typeof BINDING_SCAN_TRIGGERS)[number];
 
+/**
+ * Caminhos ignorados por padrão no detector. Testes, mocks de framework,
+ * artefatos de build e código gerado não representam contratos do produto e
+ * costumam gerar falsos positivos em repositórios grandes.
+ */
+export const DEFAULT_BINDINGS_IGNORE = [
+  '**/node_modules/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/coverage/**',
+  '**/.next/**',
+  '**/.nuxt/**',
+  '**/target/**',
+  '**/vendor/**',
+  '**/generated/**',
+  '**/__generated__/**',
+  '**/test/**',
+  '**/tests/**',
+  '**/__tests__/**',
+  '**/__mocks__/**',
+  '**/*.test.*',
+  '**/*.spec.*',
+  '**/*.min.js',
+  '**/*.bundle.js',
+];
+
 export function isBindingRuleId(value: string): value is BindingRuleId {
   return (BINDING_RULE_IDS as readonly string[]).includes(value);
 }
@@ -80,9 +114,10 @@ export function createDefaultBindingsConfig(): BindingsConfig {
   }
   return {
     rules,
-    ignore: [],
+    ignore: [...DEFAULT_BINDINGS_IGNORE],
     acceptedFalsePositives: [],
     semanticMatching: true,
+    r1IncludeTypes: true,
   };
 }
 
@@ -100,7 +135,9 @@ export const DEFAULT_BYOK_MODEL = DEFAULT_OPENAI_MODEL;
 export const DEFAULT_BYOK_BASE_URL = DEFAULT_OPENAI_BASE_URL;
 
 /** Chaves de API nunca entram no config.json nem no banco. */
-export const CODEANCHOR_API_KEY_ENV = 'CODEANCHOR_API_KEY';
+export const VIGIACODE_API_KEY_ENV = 'VIGIACODE_API_KEY';
+/** Nome antigo aceito como fallback para chaves já configuradas. */
+export const LEGACY_CODEANCHOR_API_KEY_ENV = 'CODEANCHOR_API_KEY';
 export const OPENAI_API_KEY_ENV = 'OPENAI_API_KEY';
 export const ANTHROPIC_API_KEY_ENV = 'ANTHROPIC_API_KEY';
 export const GEMINI_API_KEY_ENV = 'GEMINI_API_KEY';
@@ -119,6 +156,7 @@ export const DEFAULT_IGNORES = [
   '.nuxt',
   '.turbo',
   '.cache',
+  '.vigiacode',
   '.codeanchor',
   '*.lock',
   'pnpm-lock.yaml',
@@ -188,11 +226,11 @@ export interface ServerConfig {
 export interface DatabaseConfig {
   /** SQLite hoje; a camada de banco está isolada para suportar PostgreSQL no futuro. */
   dialect: 'sqlite';
-  /** Caminho absoluto ou relativo à pasta .codeanchor/. */
+  /** Caminho absoluto ou relativo à pasta .vigiacode/. */
   file: string;
 }
 
-export interface CodeAnchorConfig {
+export interface VigiaCodeConfig {
   version: 1;
   project: {
     name: string;
@@ -220,24 +258,42 @@ export class ConfigError extends Error {
   }
 }
 
-/** Resolve os caminhos de estado local a partir da raiz do projeto do usuário. */
-export function resolveConfigPaths(
-  projectRoot: string,
-  databaseFile: string = DATABASE_FILE_NAME,
-): ConfigPaths {
+/**
+ * Diretório de estado ativo: `.vigiacode` quando existe ou em projetos novos;
+ * `.codeanchor` para projetos inicializados antes do rename.
+ */
+export function resolveConfigDirName(projectRoot: string): string {
   const rootDir = path.resolve(projectRoot);
-  const configDir = path.join(rootDir, CONFIG_DIR_NAME);
+  if (existsSync(path.join(rootDir, CONFIG_DIR_NAME))) return CONFIG_DIR_NAME;
+  if (existsSync(path.join(rootDir, LEGACY_CONFIG_DIR_NAME))) return LEGACY_CONFIG_DIR_NAME;
+  return CONFIG_DIR_NAME;
+}
+
+/** Nome padrão do banco, preservando `codeanchor.db` em projetos legados. */
+export function defaultDatabaseFileName(projectRoot: string): string {
+  return resolveConfigDirName(projectRoot) === LEGACY_CONFIG_DIR_NAME
+    ? LEGACY_DATABASE_FILE_NAME
+    : DATABASE_FILE_NAME;
+}
+
+/** Resolve os caminhos de estado local a partir da raiz do projeto do usuário. */
+export function resolveConfigPaths(projectRoot: string, databaseFile?: string): ConfigPaths {
+  const rootDir = path.resolve(projectRoot);
+  const configDir = path.join(rootDir, resolveConfigDirName(rootDir));
+  const resolvedDatabase = databaseFile ?? defaultDatabaseFileName(rootDir);
   return {
     rootDir,
     configDir,
     configFile: path.join(configDir, CONFIG_FILE_NAME),
-    databaseFile: path.isAbsolute(databaseFile) ? databaseFile : path.join(configDir, databaseFile),
+    databaseFile: path.isAbsolute(resolvedDatabase)
+      ? resolvedDatabase
+      : path.join(configDir, resolvedDatabase),
   };
 }
 
-/** Caminho do .codeanchor/.env (carregado no start/ai test). */
+/** Caminho do `.vigiacode/.env` (ou `.codeanchor/.env` legado) carregado no start/ai test. */
 export function projectEnvPath(projectRoot: string): string {
-  return path.join(path.resolve(projectRoot), CONFIG_DIR_NAME, ENV_FILE_NAME);
+  return path.join(path.resolve(projectRoot), resolveConfigDirName(projectRoot), ENV_FILE_NAME);
 }
 
 /** Nome padrão do projeto: nome da pasta raiz. */
@@ -306,7 +362,7 @@ export interface CreateConfigInput {
   fallbackProviders?: LlmProvider[];
 }
 
-export function createDefaultConfig(input: CreateConfigInput): CodeAnchorConfig {
+export function createDefaultConfig(input: CreateConfigInput): VigiaCodeConfig {
   const provider = input.provider ?? 'none';
   const defaults = providerDefaults(provider);
 
@@ -341,7 +397,7 @@ export function createDefaultConfig(input: CreateConfigInput): CodeAnchorConfig 
     },
     database: {
       dialect: 'sqlite',
-      file: DATABASE_FILE_NAME,
+      file: defaultDatabaseFileName(input.rootPath),
     },
   };
 }
@@ -354,7 +410,7 @@ export function configExists(projectRoot: string): boolean {
  * Grava o config com os campos de IA em snake_case (base_url, max_tokens,
  * timeout, fallback_providers), mantendo o restante do formato.
  */
-export function writeConfig(projectRoot: string, config: CodeAnchorConfig): string {
+export function writeConfig(projectRoot: string, config: VigiaCodeConfig): string {
   const paths = resolveConfigPaths(projectRoot);
   mkdirSync(paths.configDir, { recursive: true });
 
@@ -387,11 +443,11 @@ export function writeConfig(projectRoot: string, config: CodeAnchorConfig): stri
  * Compatibilidade: aceita campos antigos em camelCase e o provider legado
  * "byok", migrado para "openai" ou "openai-compatible" conforme o base_url.
  */
-export function readConfig(projectRoot: string): CodeAnchorConfig {
+export function readConfig(projectRoot: string): VigiaCodeConfig {
   const paths = resolveConfigPaths(projectRoot);
   if (!existsSync(paths.configFile)) {
     throw new ConfigError(
-      `Configuração não encontrada em ${paths.configFile}. Rode "codeanchor init" primeiro.`,
+      `Configuração não encontrada em ${paths.configFile}. Rode "vigiacode init" primeiro.`,
     );
   }
 
@@ -476,7 +532,7 @@ export function readConfig(projectRoot: string): CodeAnchorConfig {
       file:
         typeof database.file === 'string' && database.file.length > 0
           ? database.file
-          : DATABASE_FILE_NAME,
+          : defaultDatabaseFileName(projectRoot),
     },
   };
 }
@@ -536,6 +592,12 @@ export function parseBindingsConfig(value: Record<string, unknown>): BindingsCon
         : typeof value.semantic_matching === 'boolean'
           ? value.semantic_matching
           : defaults.semanticMatching,
+    r1IncludeTypes:
+      typeof value.r1IncludeTypes === 'boolean'
+        ? value.r1IncludeTypes
+        : typeof value.r1_include_types === 'boolean'
+          ? value.r1_include_types
+          : defaults.r1IncludeTypes,
   };
 }
 

@@ -222,6 +222,10 @@ export function typesCompatible(left: string | null, right: string | null): bool
   if (!left || !right || left === 'unknown' || right === 'unknown') return true;
   if (left === right) return true;
   if (left === 'json' && right === 'json') return true;
+  // UUID é representado como string em DTOs (Java String, TS string).
+  if ((left === 'uuid' && right === 'string') || (left === 'string' && right === 'uuid')) {
+    return true;
+  }
   return false;
 }
 

@@ -8,7 +8,7 @@ import {
   readConfig,
   resolveConfigPaths,
   writeConfig,
-  type CodeAnchorConfig,
+  type VigiaCodeConfig,
   type LlmProvider,
 } from '../config.js';
 import { applyMigrations, openDatabase, registerProject } from '../db/index.js';
@@ -30,6 +30,8 @@ export interface InitOptions {
   timeoutMs?: number | undefined;
   force?: boolean | undefined;
   yes?: boolean | undefined;
+  /** Não altera o .gitignore do projeto (modo somente leitura/CI). */
+  skipGitignore?: boolean | undefined;
   /** Injetável nos testes; padrão pergunta no terminal. */
   confirm?: ((question: string) => Promise<boolean>) | undefined;
 }
@@ -41,27 +43,30 @@ export interface InitResult {
   databasePath: string;
   projectId: string | null;
   gitignore: GitignoreStatus;
-  config?: CodeAnchorConfig;
+  config?: VigiaCodeConfig;
 }
 
 /**
- * `codeanchor init`: cria .codeanchor/ (config.json + codeanchor.db), aplica as
+ * `vigiacode init`: cria .vigiacode/ (config.json + vigiacode.db), aplica as
  * migrations, registra o projeto e atualiza o .gitignore do usuário.
  */
 export async function runInit(options: InitOptions): Promise<InitResult> {
   const projectRoot = path.resolve(options.cwd);
   const paths = resolveConfigPaths(projectRoot);
+  const stateDirName = path.basename(paths.configDir);
+  const configFileLabel = toPosix(path.relative(projectRoot, paths.configFile));
+  const databaseFileLabel = toPosix(path.relative(projectRoot, paths.databaseFile));
 
-  logger.intro('CodeAnchor · init');
+  logger.intro('VigiaCode · init');
 
   if (existsSync(paths.configFile) && !options.force) {
     logger.warn('Este projeto já está inicializado.');
     logger.detail(`Configuração: ${toPosix(path.relative(projectRoot, paths.configFile))}`);
     logger.hint(
-      'Use "codeanchor init --force" para recriar a configuração (o banco existente é preservado).',
+      'Use "vigiacode init --force" para recriar a configuração (o banco existente é preservado).',
     );
 
-    let config: CodeAnchorConfig | undefined;
+    let config: VigiaCodeConfig | undefined;
     try {
       config = readConfig(projectRoot);
     } catch {
@@ -105,7 +110,7 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
   });
 
   writeConfig(projectRoot, config);
-  logger.success('Configuração criada em .codeanchor/config.json');
+  logger.success(`Configuração criada em ${configFileLabel}`);
 
   const databaseExisted = existsSync(paths.databaseFile);
   const opened = openDatabase(paths.databaseFile);
@@ -120,12 +125,12 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
 
   logger.success(
     databaseExisted
-      ? 'Banco local e migrations atualizados em .codeanchor/codeanchor.db'
-      : 'Banco local criado em .codeanchor/codeanchor.db',
+      ? `Banco local e migrations atualizados em ${databaseFileLabel}`
+      : `Banco local criado em ${databaseFileLabel}`,
   );
 
-  const gitignore = await ensureGitignoreEntry(projectRoot, options);
-  reportGitignore(gitignore);
+  const gitignore = await ensureGitignoreEntry(projectRoot, stateDirName, options);
+  reportGitignore(gitignore, stateDirName);
 
   logger.section('Pronto!');
   logger.info(`Projeto: ${config.project.name}`);
@@ -137,7 +142,7 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
     `Vigia: debounce ${config.watch.debounceMs} ms · arquivos até ${config.watch.maxFileSizeKb} KB · diff até ${config.git.maxDiffKb} KB`,
   );
   logger.blank();
-  logger.hint('Próximo passo: rode "codeanchor start" para subir a API em http://localhost:4317');
+  logger.hint('Próximo passo: rode "vigiacode start" para subir a API em http://localhost:4317');
 
   return {
     status: options.force ? 'reinitialized' : 'created',
@@ -152,18 +157,20 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
 
 async function ensureGitignoreEntry(
   projectRoot: string,
+  stateDirName: string,
   options: InitOptions,
 ): Promise<GitignoreStatus> {
+  if (options.skipGitignore) return 'skipped';
   const gitignorePath = path.join(projectRoot, '.gitignore');
   if (!existsSync(gitignorePath)) return 'missing';
 
   const content = readFileSync(gitignorePath, 'utf8');
-  if (hasCodeAnchorEntry(content)) return 'present';
+  if (hasStateDirEntry(content, stateDirName)) return 'present';
 
   let approved = options.yes === true;
 
   if (!approved) {
-    const question = 'Adicionar .codeanchor/ ao .gitignore do projeto?';
+    const question = `Adicionar ${stateDirName}/ ao .gitignore do projeto?`;
     if (options.confirm) {
       approved = await options.confirm(question);
     } else if (stdin.isTTY) {
@@ -178,33 +185,33 @@ async function ensureGitignoreEntry(
   const separator = content.trim().length === 0 ? '' : content.endsWith('\n') ? '\n' : '\n\n';
   appendFileSync(
     gitignorePath,
-    `${separator}# CodeAnchor (configuração e banco locais)\n.codeanchor/\n`,
+    `${separator}# VigiaCode (configuração e banco locais)\n${stateDirName}/\n`,
     'utf8',
   );
   return 'added';
 }
 
-function hasCodeAnchorEntry(content: string): boolean {
+function hasStateDirEntry(content: string, stateDirName: string): boolean {
   return content
     .split(/\r?\n/)
-    .some((line) => line.trim().replace(/^\/+|\/+$/g, '') === '.codeanchor');
+    .some((line) => line.trim().replace(/^\/+|\/+$/g, '') === stateDirName);
 }
 
-function reportGitignore(status: GitignoreStatus): void {
+function reportGitignore(status: GitignoreStatus, stateDirName: string): void {
   switch (status) {
     case 'added':
-      logger.success('Adicionado .codeanchor/ ao .gitignore.');
+      logger.success(`Adicionado ${stateDirName}/ ao .gitignore.`);
       break;
     case 'present':
-      logger.info('.gitignore já ignora .codeanchor/.');
+      logger.info(`.gitignore já ignora ${stateDirName}/.`);
       break;
     case 'missing':
       logger.hint(
-        'Nenhum .gitignore encontrado. Se usar Git, adicione ".codeanchor/" manualmente.',
+        `Nenhum .gitignore encontrado. Se usar Git, adicione "${stateDirName}/" manualmente.`,
       );
       break;
     case 'skipped':
-      logger.warn('O .gitignore não foi alterado. Adicione ".codeanchor/" manualmente.');
+      logger.warn(`O .gitignore não foi alterado. Adicione "${stateDirName}/" manualmente.`);
       break;
   }
 }

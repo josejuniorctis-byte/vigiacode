@@ -34,7 +34,7 @@ export function createProvider(
   if (!baseUrl) {
     throw new ProviderConfigError(
       `O provider "${provider}" exige um endpoint em base_url. ` +
-        'Ex.: codeanchor ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>.',
+        'Ex.: vigiacode ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>.',
     );
   }
 

@@ -16,7 +16,7 @@ const tempDirs: string[] = [];
 let opened: OpenedDatabase | null = null;
 
 function initializeProject(): string {
-  const root = mkdtempSync(path.join(tmpdir(), 'codeanchor-bindings-cli-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'vigiacode-bindings-cli-'));
   tempDirs.push(root);
   cpSync(FIXTURE, root, { recursive: true });
 

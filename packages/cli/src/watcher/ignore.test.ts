@@ -9,7 +9,7 @@ import { detectLayer } from './layers.js';
 const tempDirs: string[] = [];
 
 function makeDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'codeanchor-ignore-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'vigiacode-ignore-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -22,13 +22,13 @@ afterEach(() => {
 });
 
 describe('IgnoreMatcher', () => {
-  it('sempre ignora node_modules, dist, .git e .codeanchor', () => {
+  it('sempre ignora node_modules, dist, .git e .vigiacode', () => {
     const matcher = new IgnoreMatcher([]);
 
     expect(matcher.ignores('node_modules/react/index.js')).toBe(true);
     expect(matcher.ignores('packages/web/dist/assets/app.js')).toBe(true);
     expect(matcher.ignores('.git/config')).toBe(true);
-    expect(matcher.ignores('.codeanchor/codeanchor.db')).toBe(true);
+    expect(matcher.ignores('.vigiacode/vigiacode.db')).toBe(true);
     expect(matcher.ignores('coverage/lcov.info')).toBe(true);
     expect(matcher.ignores('src/index.ts')).toBe(false);
   });

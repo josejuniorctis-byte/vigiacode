@@ -11,7 +11,8 @@ dist/
 build/
 *.tsbuildinfo
 
-# CodeAnchor (estado local de cada projeto)
+# VigiaCode (estado local de cada projeto)
+.vigiacode/
 .codeanchor/
 
 # Testes e cobertura

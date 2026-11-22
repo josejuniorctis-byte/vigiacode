@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, like, lt, lte, or, type SQL } from 'drizzle-orm';
-import type { CodeAnchorDatabase } from './client.js';
+import type { VigiaCodeDatabase } from './client.js';
 import {
   changeEvents,
   projects,
@@ -25,7 +25,7 @@ export interface RegisterProjectInput {
  * Registra o projeto ou devolve o registro existente.
  * A raiz do projeto é a chave natural (um banco por projeto).
  */
-export function registerProject(db: CodeAnchorDatabase, input: RegisterProjectInput): Project {
+export function registerProject(db: VigiaCodeDatabase, input: RegisterProjectInput): Project {
   const rootPath = input.rootPath;
   const existing = db.select().from(projects).where(eq(projects.rootPath, rootPath)).get();
 
@@ -49,13 +49,13 @@ export function registerProject(db: CodeAnchorDatabase, input: RegisterProjectIn
 }
 
 export function findProjectByRootPath(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   rootPath: string,
 ): Project | undefined {
   return db.select().from(projects).where(eq(projects.rootPath, rootPath)).get();
 }
 
-export function findProjectById(db: CodeAnchorDatabase, id: string): Project | undefined {
+export function findProjectById(db: VigiaCodeDatabase, id: string): Project | undefined {
   return db.select().from(projects).where(eq(projects.id, id)).get();
 }
 
@@ -73,7 +73,7 @@ export interface InsertChangeEventInput {
 
 /** Grava um lote de eventos. O summary pode chegar depois pela fila de IA. */
 export function insertChangeEvents(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   inputs: InsertChangeEventInput[],
 ): ChangeEvent[] {
   if (inputs.length === 0) return [];
@@ -94,12 +94,12 @@ export function insertChangeEvents(
   return db.insert(changeEvents).values(rows).returning().all();
 }
 
-export function findChangeEventById(db: CodeAnchorDatabase, id: string): ChangeEvent | undefined {
+export function findChangeEventById(db: VigiaCodeDatabase, id: string): ChangeEvent | undefined {
   return db.select().from(changeEvents).where(eq(changeEvents.id, id)).get();
 }
 
 export function updateChangeEventSummary(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   id: string,
   summary: string,
 ): ChangeEvent | undefined {
@@ -131,7 +131,7 @@ export interface EventCursor {
  * O cursor pode ser o id de um evento (recomendado) ou um timestamp ISO.
  */
 export function listChangeEvents(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   options: ListChangeEventsOptions = {},
 ): ChangeEvent[] {
@@ -176,7 +176,7 @@ export function listChangeEvents(
 
 /** Compatibilidade com a API da Etapa 1. */
 export function listRecentChangeEvents(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   limit = 50,
 ): ChangeEvent[] {
@@ -185,7 +185,7 @@ export function listRecentChangeEvents(
 
 /** Histórico de um arquivo específico. */
 export function listFileEvents(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   filePath: string,
   options: Omit<ListChangeEventsOptions, 'filePath'> = {},
@@ -193,7 +193,7 @@ export function listFileEvents(
   return listChangeEvents(db, projectId, { ...options, filePath });
 }
 
-export function listSnapshots(db: CodeAnchorDatabase, projectId: string, limit = 100): Snapshot[] {
+export function listSnapshots(db: VigiaCodeDatabase, projectId: string, limit = 100): Snapshot[] {
   return db
     .select()
     .from(snapshots)
@@ -233,7 +233,7 @@ export interface ProjectStats {
  * segurança) para manter a resposta rápida em bases locais.
  */
 export function getProjectStats(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   maxEvents = 5000,
 ): ProjectStats {
@@ -321,7 +321,7 @@ export function getProjectStats(
 
 /** Resolve o cursor de paginação; retorna null para cursor inválido. */
 export function resolveEventCursor(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   before: string | undefined,
 ): EventCursor | null {
@@ -340,7 +340,7 @@ export function resolveEventCursor(
   return null;
 }
 
-export function countChangeEvents(db: CodeAnchorDatabase, projectId: string): number {
+export function countChangeEvents(db: VigiaCodeDatabase, projectId: string): number {
   const rows = db
     .select({ id: changeEvents.id })
     .from(changeEvents)
@@ -355,7 +355,7 @@ export interface InsertSnapshotInput {
   createdAt?: string;
 }
 
-export function insertSnapshot(db: CodeAnchorDatabase, input: InsertSnapshotInput): Snapshot {
+export function insertSnapshot(db: VigiaCodeDatabase, input: InsertSnapshotInput): Snapshot {
   const inserted = db
     .insert(snapshots)
     .values({
@@ -372,7 +372,7 @@ export function insertSnapshot(db: CodeAnchorDatabase, input: InsertSnapshotInpu
   return inserted;
 }
 
-export function getLatestSnapshot(db: CodeAnchorDatabase, projectId: string): Snapshot | undefined {
+export function getLatestSnapshot(db: VigiaCodeDatabase, projectId: string): Snapshot | undefined {
   return db
     .select()
     .from(snapshots)

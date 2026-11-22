@@ -16,7 +16,7 @@ interface ThemeContextValue {
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
-const STORAGE_KEY = 'codeanchor-theme';
+const STORAGE_KEY = 'vigiacode-theme';
 
 function initialTheme(): Theme {
   if (typeof window === 'undefined') return 'dark';

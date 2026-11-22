@@ -284,6 +284,7 @@ function extractJpa(file: string, content: string, output: FileExtract): void {
   let current: EntityInfo | null = null;
   let wasEntity = false;
   let pendingColumn: string | null = null;
+  let pendingTransient = false;
 
   for (const [index, line] of lines.entries()) {
     const entityMatch = /@Entity\b/.test(line);
@@ -311,6 +312,8 @@ function extractJpa(file: string, content: string, output: FileExtract): void {
       continue;
     }
 
+    if (/@Transient\b/.test(line)) pendingTransient = true;
+
     const columnMatch = /@Column\s*\(([^)]*)\)/.exec(line);
     if (columnMatch?.[1]) {
       const named = /name\s*=\s*["']([^"']+)["']/.exec(columnMatch[1]);
@@ -319,11 +322,39 @@ function extractJpa(file: string, content: string, output: FileExtract): void {
     if (/@(Id|EmbeddedId)\b/.test(line)) pendingColumn = pendingColumn ?? 'id';
 
     if (!current) continue;
+
+    // Constantes (enum-like), serialVersionUID e campos @Transient não são
+    // colunas persistidas.
+    if (/\bstatic\b/.test(line) || /serialVersionUID/.test(line)) {
+      pendingColumn = null;
+      pendingTransient = false;
+      continue;
+    }
+
     const fieldMatch =
-      /^\s*(?:private|protected|public)\s+(?:final\s+)?([\w.<>, ?]+?)\s+(\w+)\s*(?:=[^;]*)?;/.exec(
+      /^\s*(?:@[\w.]+(?:\([^)]*\))?\s*)*(?:private|protected|public)\s+(?:final\s+)?([\w.<>, ?]+?)\s+(\w+)\s*(?:=[^;]*)?;/.exec(
         line,
       );
     if (!fieldMatch?.[1] || !fieldMatch[2]) continue;
+
+    if (pendingTransient) {
+      pendingColumn = null;
+      pendingTransient = false;
+      continue;
+    }
+
+    // Relações 1:N/N:N e coleções não são colunas da tabela.
+    if (
+      /<[^>]+>/.test(fieldMatch[1]) &&
+      /^(List|Set|Collection|Map|SortedSet|SortedMap)</.test(fieldMatch[1].trim())
+    ) {
+      pendingColumn = null;
+      continue;
+    }
+    if (/@(OneToMany|ManyToMany|ElementCollection)\b/.test(line)) {
+      pendingColumn = null;
+      continue;
+    }
 
     addField(
       current,
@@ -414,7 +445,7 @@ function parseAlterTables(content: string, file: string): Alteration[] {
   while ((match = regex.exec(content)) !== null) {
     const rawTable = match[1];
     const action = match[2]?.toUpperCase();
-    const rest = match[3];
+    const rest = (match[3] ?? '').replace(/^\s*IF\s+NOT\s+EXISTS\s+/i, '');
     if (!rawTable || !action || !rest) continue;
 
     const rawName = unquoteIdentifier(rawTable);
@@ -452,7 +483,12 @@ function parseColumnDefinition(
   file: string,
   line: number,
 ): MigrationField | null {
-  const trimmed = definition.trim();
+  let trimmed = definition.trim();
+  // Em ALTER TABLE com múltiplas colunas, cada item depois da vírgula repete
+  // "ADD COLUMN IF NOT EXISTS"; removemos para não criar a coluna "ADD".
+  trimmed = trimmed
+    .replace(/^ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?/i, '')
+    .replace(/^IF\s+NOT\s+EXISTS\s+/i, '');
   if (trimmed.length === 0) return null;
   if (/^(CONSTRAINT|PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|KEY|INDEX|EXCLUDE)\b/i.test(trimmed)) {
     return null;

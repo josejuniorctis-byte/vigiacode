@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { LLMProvider } from '../ai/index.js';
-import type { CodeAnchorConfig } from '../config.js';
+import type { VigiaCodeConfig } from '../config.js';
 import {
   deleteBindingFileCache,
   finishBindingScan,
@@ -15,12 +15,13 @@ import {
   upsertBinding,
   type BindingSummary,
 } from '../db/bindings-repository.js';
-import type { CodeAnchorDatabase } from '../db/client.js';
+import type { VigiaCodeDatabase } from '../db/client.js';
 import { bindingIdentityKey } from '../db/bindings-repository.js';
 import type { Binding, Project } from '../db/schema.js';
 import { IgnoreMatcher, createIgnoreMatcher } from '../watcher/ignore.js';
 import { isSupportedBindingFile } from './classify.js';
 import { extractFile } from './extractors/index.js';
+import { isGeneratedBindingFile } from './extractors/common.js';
 import { buildMatchContext } from './matcher.js';
 import { buildMatrix } from './matrix.js';
 import { combineExtracts } from './project-map.js';
@@ -40,9 +41,9 @@ export interface BindingsEventPublisher {
 }
 
 export interface BindingsScannerOptions {
-  db: CodeAnchorDatabase;
+  db: VigiaCodeDatabase;
   project: Project;
-  config: CodeAnchorConfig;
+  config: VigiaCodeConfig;
   hub?: BindingsEventPublisher | null;
   provider?: LLMProvider | null;
   logger?: {
@@ -57,7 +58,22 @@ export interface ScanOptions {
   /** Caminhos relativos POSIX; quando presentes, faz scan incremental. */
   changedFiles?: string[] | undefined;
   batchId?: string | null;
+  /** Progresso em arquivos (usado pelo terminal em repositórios grandes). */
+  onProgress?: ((progress: ScanProgress) => void) | undefined;
 }
+
+export interface ScanProgress {
+  scanned: number;
+  total: number;
+  file: string;
+  incremental: boolean;
+}
+
+/**
+ * Versão dos extractors. Bump ao mudar a extração para invalidar o cache por
+ * hash: arquivos inalterados precisam ser reprocessados com a lógica nova.
+ */
+export const BINDINGS_EXTRACTOR_VERSION = '4';
 
 /**
  * Orquestra o detector:
@@ -67,13 +83,14 @@ export interface ScanOptions {
  * Scans são serializados para evitar corrida entre `start`, watcher e API.
  */
 export class BindingsScanner {
-  private readonly db: CodeAnchorDatabase;
+  private readonly db: VigiaCodeDatabase;
   private readonly project: Project;
-  private readonly config: CodeAnchorConfig;
+  private readonly config: VigiaCodeConfig;
   private readonly hub: BindingsEventPublisher | null;
   private readonly provider: LLMProvider | null;
   private readonly maxFileSizeKb: number;
   private readonly logger: BindingsScannerOptions['logger'];
+  private readonly bindingsIgnore: IgnoreMatcher;
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(options: BindingsScannerOptions) {
@@ -84,6 +101,7 @@ export class BindingsScanner {
     this.provider = options.provider ?? null;
     this.maxFileSizeKb = options.maxFileSizeKb ?? options.config.watch.maxFileSizeKb;
     this.logger = options.logger;
+    this.bindingsIgnore = new IgnoreMatcher(options.config.bindings.ignore);
   }
 
   summary(): BindingSummary {
@@ -128,7 +146,12 @@ export class BindingsScanner {
     const trigger = options.trigger ?? 'manual';
     const projectRoot = this.project.rootPath;
 
-    const changed = options.changedFiles?.filter((file) => isSupportedBindingFile(file));
+    const changed = options.changedFiles?.filter(
+      (file) =>
+        isSupportedBindingFile(file) &&
+        !isGeneratedBindingFile(file) &&
+        !this.bindingsIgnore.ignores(file),
+    );
     if (options.changedFiles && (changed === undefined || changed.length === 0)) {
       return null;
     }
@@ -143,6 +166,7 @@ export class BindingsScanner {
       const walked = changed === undefined ? walkProjectFiles(projectRoot, this.config) : [];
       const toProcess = changed ?? walked;
       let filesScanned = 0;
+      const progressEvery = Math.max(1, Math.floor(toProcess.length / 20));
 
       const cache = new Map(
         listBindingFileCache(this.db, this.project.id).map((item) => [item.filePath, item]),
@@ -158,11 +182,25 @@ export class BindingsScanner {
         }
       }
 
-      for (const file of toProcess) {
+      for (const [index, file] of toProcess.entries()) {
+        if (index > 0 && index % progressEvery === 0) {
+          options.onProgress?.({
+            scanned: index,
+            total: toProcess.length,
+            file,
+            incremental: changed !== undefined,
+          });
+        }
         if (this.extractAndCache(projectRoot, file, options.changedFiles !== undefined, cache)) {
           filesScanned += 1;
         }
       }
+      options.onProgress?.({
+        scanned: toProcess.length,
+        total: toProcess.length,
+        file: toProcess.at(-1) ?? '',
+        incremental: changed !== undefined,
+      });
 
       const extracts = this.loadCachedExtracts();
       const map = combineExtracts(extracts.effects);
@@ -251,7 +289,7 @@ export class BindingsScanner {
     projectRoot: string,
     file: string,
     incremental: boolean,
-    cache: Map<string, { filePath: string; hash: string }>,
+    cache: Map<string, { filePath: string; hash: string; extractor: string }>,
   ): boolean {
     const absolute = path.resolve(projectRoot, file);
 
@@ -285,7 +323,13 @@ export class BindingsScanner {
 
     const hash = createHash('sha1').update(content).digest('hex');
     const cached = cache.get(file);
-    if (cached && cached.hash === hash) return true;
+    if (
+      cached &&
+      cached.hash === hash &&
+      cached.extractor.startsWith(`${BINDINGS_EXTRACTOR_VERSION}:`)
+    ) {
+      return true;
+    }
 
     const extracts = extractFile({ projectRoot, file, content });
     if (extracts.length === 0) {
@@ -299,7 +343,7 @@ export class BindingsScanner {
       filePath: file,
       hash,
       layer: extracts[0]?.layer ?? 'frontend',
-      extractor: extracts.map((extract) => extract.extractor).join(','),
+      extractor: `${BINDINGS_EXTRACTOR_VERSION}:${extracts.map((extract) => extract.extractor).join(',')}`,
       data: JSON.stringify(extracts),
     });
     cache.set(file, stored);
@@ -325,7 +369,7 @@ export function createBindingsScanner(options: BindingsScannerOptions): Bindings
 }
 
 /** Percorre o projeto respeitando watch.ignore, .gitignore e bindings.ignore. */
-export function walkProjectFiles(projectRoot: string, config: CodeAnchorConfig): string[] {
+export function walkProjectFiles(projectRoot: string, config: VigiaCodeConfig): string[] {
   const watchMatcher = createIgnoreMatcher(projectRoot, config.watch);
   const bindingsMatcher = new IgnoreMatcher(config.bindings.ignore);
   const files: string[] = [];
@@ -351,7 +395,7 @@ export function walkProjectFiles(projectRoot: string, config: CodeAnchorConfig):
       }
       if (!entry.isFile()) continue;
       if (watchMatcher.ignores(relative) || bindingsMatcher.ignores(relative)) continue;
-      if (!isSupportedBindingFile(relative)) continue;
+      if (!isSupportedBindingFile(relative) || isGeneratedBindingFile(relative)) continue;
       files.push(relative);
     }
   };

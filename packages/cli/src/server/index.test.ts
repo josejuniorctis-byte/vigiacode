@@ -81,7 +81,7 @@ describe('API local', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
-    expect(response.body).toContain('CodeAnchor rodando');
+    expect(response.body).toContain('VigiaCode rodando');
   });
 });
 
@@ -89,10 +89,10 @@ describe('build estático do front-end', () => {
   let webDist: string;
 
   beforeEach(() => {
-    webDist = mkdtempSync(path.join(tmpdir(), 'codeanchor-web-'));
+    webDist = mkdtempSync(path.join(tmpdir(), 'vigiacode-web-'));
     writeFileSync(
       path.join(webDist, 'index.html'),
-      '<!doctype html><html><body><h1>CodeAnchor build</h1></body></html>',
+      '<!doctype html><html><body><h1>VigiaCode build</h1></body></html>',
       'utf8',
     );
   });
@@ -119,11 +119,11 @@ describe('build estático do front-end', () => {
     try {
       const root = await app.inject({ method: 'GET', url: '/' });
       expect(root.statusCode).toBe(200);
-      expect(root.body).toContain('CodeAnchor build');
+      expect(root.body).toContain('VigiaCode build');
 
       const spaRoute = await app.inject({ method: 'GET', url: '/projeto/123' });
       expect(spaRoute.statusCode).toBe(200);
-      expect(spaRoute.body).toContain('CodeAnchor build');
+      expect(spaRoute.body).toContain('VigiaCode build');
     } finally {
       await app.close();
       opened.close();

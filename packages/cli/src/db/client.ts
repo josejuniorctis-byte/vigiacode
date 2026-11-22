@@ -12,7 +12,7 @@ import * as schema from './schema.js';
  * repository.pg.ts) e trocar a implementação exposta em src/db/index.ts.
  */
 
-export type CodeAnchorDatabase = BetterSQLite3Database<typeof schema>;
+export type VigiaCodeDatabase = BetterSQLite3Database<typeof schema>;
 export type SqliteConnection = Database.Database;
 
 export interface OpenDatabaseOptions {
@@ -21,7 +21,7 @@ export interface OpenDatabaseOptions {
 }
 
 export interface OpenedDatabase {
-  db: CodeAnchorDatabase;
+  db: VigiaCodeDatabase;
   sqlite: SqliteConnection;
   file: string;
   close(): void;

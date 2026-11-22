@@ -262,7 +262,7 @@ export function BindingsPage() {
           <EmptyState
             icon="⚠"
             title="Não foi possível carregar as amarrações"
-            description="Confira se o servidor do CodeAnchor está rodando e tente novamente."
+            description="Confira se o servidor do VigiaCode está rodando e tente novamente."
           />
         ) : rows.length === 0 ? (
           <EmptyState

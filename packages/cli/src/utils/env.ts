@@ -9,7 +9,7 @@ export interface EnvLoadResult {
 }
 
 /**
- * Carrega `.codeanchor/.env` sem sobrescrever variáveis já definidas no ambiente.
+ * Carrega `.vigiacode/.env` sem sobrescrever variáveis já definidas no ambiente.
  * Formato aceito: KEY=valor, export KEY=valor, comentários com # e valores entre
  * aspas simples/duplas.
  */

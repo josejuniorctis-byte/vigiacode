@@ -10,7 +10,7 @@ import type { WatchConfig } from '../config.js';
  * - padrões com barra casam a partir de qualquer nível (a menos que comecem com `/`);
  * - `*`, `**`, `?` e classes `[...]` são suportados;
  * - `!padrão` re-inclui (última regra vence), exceto diretórios sempre ignorados;
- * - node_modules, dist, .git, .codeanchor etc. são SEMPRE ignorados.
+ * - node_modules, dist, .git, .vigiacode etc. são SEMPRE ignorados.
  */
 
 const ALWAYS_IGNORED_SEGMENTS = new Set([
@@ -28,7 +28,7 @@ const ALWAYS_IGNORED_SEGMENTS = new Set([
   '.turbo',
   '.cache',
   '.parcel-cache',
-  '.codeanchor',
+  '.vigiacode',
   '.idea',
   '.vscode',
 ]);

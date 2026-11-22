@@ -142,7 +142,17 @@ export function classifyFile(file: string, content: string): BindingLayer[] {
 
 function isDatabaseFile(extension: string, segments: string[], content: string): boolean {
   if (extension === '.sql' || extension === '.prisma') return true;
-  if (segments.some((segment) => DATABASE_SEGMENTS.has(segment))) return true;
+  // Java/Kotlin: só é banco quando há anotação de persistência (JPA/Hibernate).
+  if (extension === '.java' || extension === '.kt') return DATABASE_MARKERS.test(content);
+  // TS/JS: pastas de banco contam, mas `models/` e `schema/` sozinhos são
+  // ambíguos (muitos projetos guardam tipos de UI ali). Exigimos marcador de ORM
+  // ou uma pasta claramente de banco (db/database/drizzle/migrations/...).
+  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts'].includes(extension)) {
+    if (DATABASE_MARKERS.test(content)) return true;
+    return segments.some((segment) =>
+      ['db', 'database', 'drizzle', 'migrations', 'migration', 'prisma', 'seeds'].includes(segment),
+    );
+  }
   return DATABASE_MARKERS.test(content);
 }
 
@@ -153,9 +163,17 @@ function isBackendFile(extension: string, segments: string[], content: string): 
     return true;
   }
 
-  if (segments.some((segment) => BACKEND_SEGMENTS.has(segment))) {
-    // Uma página dentro de `app/` do Next é front-end, mas `app/api/**` é back-end.
-    if (segments.includes('api')) return true;
+  // Rotas de API do Next/Nuxt/remix e pastas server/backend são back-end.
+  const nextApi =
+    hasAdjacent(segments, 'app', 'api') ||
+    hasAdjacent(segments, 'pages', 'api') ||
+    hasAdjacent(segments, 'server', 'api');
+  if (nextApi) return true;
+
+  const backendSegment = segments.some(
+    (segment) => BACKEND_SEGMENTS.has(segment) && segment !== 'api',
+  );
+  if (backendSegment) {
     if (
       segments.some((segment) => FRONTEND_SEGMENTS.has(segment)) &&
       !BACKEND_MARKERS.test(content)
@@ -166,17 +184,35 @@ function isBackendFile(extension: string, segments: string[], content: string): 
     return true;
   }
 
-  return BACKEND_MARKERS.test(content);
+  // `src/api/client.ts` costuma ser cliente HTTP do front-end, não servidor.
+  if (BACKEND_MARKERS.test(content)) return true;
+  return false;
 }
 
 function isFrontendFile(extension: string, segments: string[], content: string): boolean {
-  // app/api/** e pages/api/** são back-end mesmo estando sob `app/`.
-  if (segments.includes('api') && BACKEND_MARKERS.test(content)) return false;
-  if (['.tsx', '.jsx', '.vue', '.svelte', '.astro'].includes(extension)) return true;
-  if (segments.some((segment) => FRONTEND_SEGMENTS.has(segment))) return true;
+  // app/api/**, pages/api/** e server/api/** são back-end mesmo sob `app/`.
+  if (hasAdjacent(segments, 'app', 'api') || hasAdjacent(segments, 'pages', 'api')) return false;
+  if (hasAdjacent(segments, 'server', 'api')) return false;
+
+  // Java, Kotlin e Python não são front-end web neste detector.
+  if (['.java', '.kt', '.py', '.rb', '.php', '.cs', '.go'].includes(extension)) return false;
+
+  if (['.tsx', '.jsx', '.vue', '.svelte', '.astro'].includes(extension)) {
+    return !BACKEND_MARKERS.test(content) || FRONTEND_MARKERS.test(content);
+  }
+  if (segments.some((segment) => FRONTEND_SEGMENTS.has(segment)) && !segments.includes('server')) {
+    if (!BACKEND_MARKERS.test(content)) return true;
+  }
   if (extension === '.ts' || extension === '.js' || extension === '.mjs' || extension === '.cjs') {
-    if (BACKEND_MARKERS.test(content) || DATABASE_MARKERS.test(content)) return false;
+    if (DATABASE_MARKERS.test(content)) return false;
     return FRONTEND_MARKERS.test(content);
+  }
+  return false;
+}
+
+function hasAdjacent(segments: string[], first: string, second: string): boolean {
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    if (segments[index] === first && segments[index + 1] === second) return true;
   }
   return false;
 }

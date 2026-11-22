@@ -3,6 +3,7 @@ import type { BindingRuleId, BindingsConfig } from '../config.js';
 import type { BindingStatus } from '../db/schema.js';
 import type { EndpointInfo, Finding, FrontendCall, ProjectMap, SourceRef } from './types.js';
 import type { MatchContext } from './matcher.js';
+import { isGeneratedBindingFile } from './extractors/common.js';
 import {
   findMatchingEntity,
   findMatchingField,
@@ -11,6 +12,7 @@ import {
   similarBackendField,
 } from './matcher.js';
 import {
+  isAuxiliaryTypeName,
   isFloatingPointType,
   looksMonetary,
   nameSimilarity,
@@ -18,6 +20,77 @@ import {
   normalizeFieldName,
   typesCompatible,
 } from './names.js';
+
+/** Tipos globais/utilitários que nunca são contratos de dados. */
+const GLOBAL_FRONT_TYPES = new Set([
+  'window',
+  'document',
+  'node',
+  'element',
+  'htmlelement',
+  'event',
+  'request',
+  'response',
+  'headers',
+  'formdata',
+  'blob',
+  'file',
+  'url',
+  'urlsearchparams',
+  'storage',
+  'processenv',
+  'importmeta',
+  'jsx',
+  'react',
+  'fragment',
+]);
+
+/** DTOs de leitura/projeção não precisam espelhar colunas do banco. */
+const PROJECTION_NAME =
+  /(Response|View|Projection|Summary|Resumo|Report|ReportResponse|Dashboard|Stats|Statistics|Lookup|Option|Page|Result)$/i;
+
+/** Chaves genéricas de envelope não são campos de contrato. */
+const GENERIC_PAYLOAD_KEYS = new Set(['payload', 'body', 'data', 'params', 'query', 'headers']);
+
+/**
+ * Colunas herdadas de `@MappedSuperclass`/BaseEntity e auditoria. O extractor
+ * de JPA vê apenas a classe concreta; não acusar essas colunas evita uma
+ * enxurrada de falsos positivos.
+ */
+const INHERITED_COLUMNS = new Set([
+  'id',
+  'tenant',
+  'tenant_id',
+  'filial',
+  'filial_id',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+  'version',
+  'created_by',
+  'updated_by',
+]);
+
+/** Arquivo que define um DTO de leitura/projeção. */
+const PROJECTION_FILE =
+  /(Response|View|Projection|Summary|Resumo|Report|Dashboard|Stats|Lookup|Option|Result|Page)\.(?:java|kt|ts|tsx|js|jsx)$/i;
+
+function isProjectionRef(file: string | undefined): boolean {
+  return Boolean(file && PROJECTION_FILE.test(file));
+}
+
+/** Campos calculados/derivados que não precisam existir como coluna. */
+const DERIVED_FIELD =
+  /(_nome|_descricao|_cor|_total|_percentual|_resumo|_saldo|_url|_imagem|_quantidade|_contagem|_contas|_count)$/i;
+
+function isDerivedField(field: { name: string; rawType: string | null }): boolean {
+  if (/(^|[^a-z])(list|set|map|collection|page|array)([^a-z]|$)/i.test(field.rawType ?? '')) {
+    return true;
+  }
+  if (/\[\]$/.test(field.rawType ?? '')) return true;
+  if (['linhas', 'itens', 'total', 'quantidade'].includes(field.name)) return true;
+  return DERIVED_FIELD.test(field.name);
+}
 
 /**
  * Regras de detecção R1–R10.
@@ -94,6 +167,9 @@ export function evaluateRules(
 
   // Amarrações verdes: campo presente e consistente nas três camadas.
   for (const [frontEntityName, frontEntity] of map.frontend) {
+    if (isIgnoredFrontEntity(frontEntity)) continue;
+    if (isMockOnly(map, frontEntityName)) continue;
+
     const backEntity = findMatchingEntity(map.backend, frontEntityName);
     const dbEntity = findMatchingEntity(map.database, frontEntityName);
     if (!backEntity || !dbEntity) continue;
@@ -149,9 +225,13 @@ function applyFieldRules(
 ): void {
   for (const [frontEntityName, frontEntity] of map.frontend) {
     if (frontEntity.fields.length === 0) continue;
+    if (isIgnoredFrontEntity(frontEntity)) continue;
     if (isMockOnly(map, frontEntityName)) continue;
 
     const backEntity = findMatchingEntity(map.backend, frontEntityName);
+    const hasBackContract = Boolean(backEntity);
+    const hasCall = map.calls.some((call) => call.entity === frontEntityName);
+
     for (const frontField of frontEntity.fields) {
       const link = matchedBackendLink(match, frontEntityName, frontField.name);
       if (link) continue;
@@ -177,6 +257,19 @@ function applyFieldRules(
       }
 
       if (!enabled('R1')) continue;
+      // Se a rota existe mas o extractor não achou DTO/campos no back-end, não
+      // há evidência suficiente para afirmar que o campo falta. R1 fica
+      // conservadora nesse caso (evita culpar o front por DTO não reconhecido).
+      if (backEntity && backEntity.fields.length === 0) continue;
+
+      // R1 é sobre o contrato de ENTRADA: formulário/payload sempre contam.
+      // Tipos/interfaces só entram quando a entidade tem DTO/rota no back-end
+      // (ou quando o projeto liga `r1IncludeTypes` explicitamente).
+      const isInput = frontField.source === 'form' || frontField.source === 'payload';
+      const includeTypes = config.r1IncludeTypes !== false;
+      if (!isInput && !(includeTypes && (hasBackContract || hasCall))) continue;
+      if (GENERIC_PAYLOAD_KEYS.has(frontField.name)) continue;
+
       add({
         ruleId: 'R1',
         layer: 'backend',
@@ -205,26 +298,20 @@ function applyR2(
 
   for (const [backEntityName, backEntity] of map.backend) {
     if (backEntity.fields.length === 0) continue;
+    // DTOs de resposta, projections e view models não são contratos de
+    // persistência. R2 só compara quando a entidade espelha uma tabela e o
+    // nome não indica uma projeção de leitura.
+    if (PROJECTION_NAME.test(backEntity.rawName)) continue;
     const dbEntity = findMatchingEntity(map.database, backEntityName);
 
-    if (!dbEntity) {
-      add({
-        ruleId: 'R2',
-        layer: 'database',
-        entity: backEntityName,
-        field: '*',
-        status: severityFor('R2', 'red'),
-        severity: severityFor('R2', 'red'),
-        message: `[R2] A entidade/DTO "${backEntity.rawName}" não tem tabela ou schema correspondente no banco.`,
-        backRef: backEntity.refs[0],
-        suggestion: `Crie a tabela/entidade de ${backEntity.rawName} no banco e a migration correspondente.`,
-      });
-      continue;
-    }
+    if (!dbEntity) continue;
 
     for (const backField of backEntity.fields) {
       const dbField = findMatchingField(dbEntity, backField.name);
       if (!dbField) {
+        if (INHERITED_COLUMNS.has(backField.name)) continue;
+        if (isProjectionRef(backField.ref.file)) continue;
+        if (isDerivedField(backField)) continue;
         add({
           ruleId: 'R2',
           layer: 'database',
@@ -267,6 +354,9 @@ function applyR3(
 
   for (const [dbEntityName, dbEntity] of map.database) {
     if (dbEntity.sources.length === 1 && dbEntity.sources[0] === 'migration') continue;
+    // Só compara entidades realmente mapeadas por ORM/schema; tipos de UI que
+    // caíram no mapa de banco não são contrato de persistência.
+    if (!dbEntity.sources.some((source) => source === 'entity' || source === 'column')) continue;
     const columns = map.migrationColumns.get(dbEntityName);
 
     if (!columns) {
@@ -287,6 +377,7 @@ function applyR3(
 
     for (const field of dbEntity.fields) {
       if (columns.has(field.name)) continue;
+      if (INHERITED_COLUMNS.has(field.name)) continue;
       add({
         ruleId: 'R3',
         layer: 'database',
@@ -302,6 +393,7 @@ function applyR3(
 
     for (const [fieldName, field] of columns) {
       if (findMatchingField(dbEntity, fieldName)) continue;
+      if (INHERITED_COLUMNS.has(fieldName)) continue;
       add({
         ruleId: 'R3',
         layer: 'database',
@@ -316,23 +408,10 @@ function applyR3(
     }
   }
 
-  // Tabelas que só existem em migrations (sem ORM correspondente).
-  for (const [entityName, columns] of map.migrationColumns) {
-    if (map.database.has(entityName)) continue;
-    for (const field of columns.values()) {
-      add({
-        ruleId: 'R3',
-        layer: 'database',
-        entity: entityName,
-        field: field.name,
-        status: severityFor('R3', 'yellow'),
-        severity: severityFor('R3', 'yellow'),
-        message: `[R3] Coluna "${field.rawName}" existe em migration, mas não há entidade/schema para "${entityName}".`,
-        dbRef: field.ref,
-        suggestion: `Crie a entidade/tabela ${entityName} no schema ou remova a migration.`,
-      });
-    }
-  }
+  // Tabelas que só existem em migrations e não têm ORM correspondente não são
+  // necessariamente quebra: podem ser views, tabelas de auditoria ou objetos
+  // gerenciados por outro serviço. R3 compara apenas entidades que existem nas
+  // duas camadas (ORM/schema × migrations).
 }
 
 function applyR4(
@@ -481,6 +560,7 @@ function applyR7(
         continue;
       }
       if (resolveLocalImport(extract.file, item.specifier, existing)) continue;
+      if (isGeneratedBindingFile(item.specifier)) continue;
 
       add({
         ruleId: 'R7',
@@ -694,6 +774,15 @@ function isMockOnly(map: ProjectMap, entityName: string): boolean {
   const mockRef = entity.refs.some((ref_) => map.mockFiles.has(ref_.file));
   const localRef = entity.refs.some((ref_) => map.localStorageFiles.has(ref_.file));
   return mockRef || localRef;
+}
+
+/** Tipos de UI/globais não são contratos de dados entre as camadas. */
+function isIgnoredFrontEntity(entity: { name: string; rawName: string }): boolean {
+  if (isAuxiliaryTypeName(entity.rawName)) return true;
+  if (GLOBAL_FRONT_TYPES.has(entity.name.toLowerCase())) return true;
+  return /^(props|state|config|options|params|query|result|theme|style|event)s?$/.test(
+    entity.name.toLowerCase(),
+  );
 }
 
 function matchesAccepted(

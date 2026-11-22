@@ -1,10 +1,11 @@
 {
-  "name": "codeanchor",
+  "name": "vigiacode",
   "version": "0.1.0",
-  "description": "CLI do CodeAnchor — vigia de mudanças, diffs e resumos para projetos com agentes de IA.",
+  "description": "CLI do VigiaCode — vigia de mudanças, diffs e resumos para projetos com agentes de IA.",
   "license": "MIT",
   "type": "module",
   "bin": {
+    "vigiacode": "dist/index.js",
     "codeanchor": "dist/index.js"
   },
   "main": "dist/index.js",

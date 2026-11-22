@@ -80,7 +80,7 @@ export function DiffView({ diff, truncated }: { diff: string; truncated?: boolea
     <div>
       {truncated ? (
         <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          Diff truncado pelo CodeAnchor — parte das alterações não é exibida.
+          Diff truncado pelo VigiaCode — parte das alterações não é exibida.
         </p>
       ) : null}
       <div

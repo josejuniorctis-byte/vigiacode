@@ -18,7 +18,7 @@ import {
   effectiveModel,
   readConfig,
   resolveConfigPaths,
-  type CodeAnchorConfig,
+  type VigiaCodeConfig,
 } from '../config.js';
 import {
   applyMigrations,
@@ -58,7 +58,7 @@ export interface RunningServer {
 }
 
 /**
- * `codeanchor start`: valida o init, abre o banco, sobe o Fastify, inicia o vigia
+ * `vigiacode start`: valida o init, abre o banco, sobe o Fastify, inicia o vigia
  * e serve o build do front-end quando ele existe.
  *
  * Retorna `null` quando não foi possível iniciar (a mensagem já foi impressa).
@@ -68,14 +68,15 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
   const paths = resolveConfigPaths(projectRoot);
 
   const envLoad = loadProjectEnv(projectRoot);
-  if (envLoad.loaded.length > 0) {
-    logger.detail(`.codeanchor/.env carregado (${envLoad.loaded.length} variável(is)).`);
+  if (envLoad.loaded.length > 0 && envLoad.file) {
+    const envLabel = toPosix(path.relative(projectRoot, envLoad.file));
+    logger.detail(`${envLabel} carregado (${envLoad.loaded.length} variável(is)).`);
   }
 
   if (!configExists(projectRoot)) {
     logger.error('Este projeto ainda não foi inicializado.');
     logger.detail(`Esperado: ${toPosix(path.relative(projectRoot, paths.configFile))}`);
-    logger.hint('Rode "codeanchor init" na raiz do projeto e depois "codeanchor start".');
+    logger.hint('Rode "vigiacode init" na raiz do projeto e depois "vigiacode start".');
     process.exitCode = 1;
     return null;
   }
@@ -90,7 +91,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
   if (!existsSync(databasePaths.databaseFile)) {
     logger.error('Banco local não encontrado.');
     logger.detail(`Esperado: ${toPosix(path.relative(projectRoot, databasePaths.databaseFile))}`);
-    logger.hint('Rode "codeanchor init" para criar o banco e aplicar as migrations.');
+    logger.hint('Rode "vigiacode init" para criar o banco e aplicar as migrations.');
     process.exitCode = 1;
     return null;
   }
@@ -242,7 +243,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
 
     if (hasErrorCode(error, 'EADDRINUSE')) {
       logger.error(`A porta ${port} já está em uso.`);
-      logger.hint(`Escolha outra porta: codeanchor start --port ${port + 1}`);
+      logger.hint(`Escolha outra porta: vigiacode start --port ${port + 1}`);
     } else if (hasErrorCode(error, 'EACCES')) {
       logger.error(`Sem permissão para escutar na porta ${port}.`);
       logger.hint('Use uma porta acima de 1024 ou rode com permissões adequadas.');
@@ -295,7 +296,17 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
 
   // Scan completo em background: o servidor já está no ar enquanto analisamos.
   void bindingsScanner
-    .scan({ trigger: 'start' })
+    .scan({
+      trigger: 'start',
+      onProgress: (progress) => {
+        const percent =
+          progress.total === 0 ? 100 : Math.floor((progress.scanned / progress.total) * 100);
+        if (percent % 10 !== 0 || progress.scanned === 0) return;
+        logger.detail(
+          `Amarrações: ${percent}% · ${progress.scanned}/${progress.total} arquivo(s) analisado(s)`,
+        );
+      },
+    })
     .then((result) => {
       if (!result) return;
       const counts = result.summary;
@@ -317,7 +328,7 @@ export async function runStart(options: StartOptions): Promise<RunningServer | n
   const url = `http://${displayHost}:${port}`;
 
   const aiModel = effectiveModel(config.llm);
-  logger.intro('CodeAnchor iniciado');
+  logger.intro('VigiaCode iniciado');
   logger.detail(`Projeto: ${project.name}`);
   logger.detail(`API:     ${url}/api/health`);
   logger.detail(
@@ -366,7 +377,7 @@ export async function runStartCommand(options: StartOptions): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.blank();
-    logger.info(`Encerrando o CodeAnchor (${signal})...`);
+    logger.info(`Encerrando o VigiaCode (${signal})...`);
     try {
       await running.close();
     } catch (error) {
@@ -395,12 +406,12 @@ function hasErrorCode(error: unknown, code: string): boolean {
   );
 }
 
-function readConfigOrReport(projectRoot: string): CodeAnchorConfig | null {
+function readConfigOrReport(projectRoot: string): VigiaCodeConfig | null {
   try {
     return readConfig(projectRoot);
   } catch (error) {
     logger.error(error instanceof Error ? error.message : String(error));
-    logger.hint('Rode "codeanchor init --force" para recriar a configuração.');
+    logger.hint('Rode "vigiacode init --force" para recriar a configuração.');
     return null;
   }
 }

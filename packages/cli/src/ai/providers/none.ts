@@ -7,7 +7,7 @@ export class NoneProvider implements LLMProvider {
 
   async complete(_prompt: string, _options?: CompletionOptions): Promise<string> {
     throw new ProviderConfigError(
-      'O provider "none" não usa IA; o CodeAnchor gera um resumo heurístico local.',
+      'O provider "none" não usa IA; o VigiaCode gera um resumo heurístico local.',
     );
   }
 

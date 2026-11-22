@@ -43,7 +43,7 @@ function entity(
     layer,
     refs: [ref],
     fields,
-    sources: ['type'],
+    sources: layer === 'database' ? ['column'] : ['type'],
   };
 }
 

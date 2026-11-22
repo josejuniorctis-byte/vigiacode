@@ -2,7 +2,7 @@ import { countDiffStats, uniqueLayers } from './heuristic.js';
 import type { SummaryInput } from './types.js';
 
 export const SUMMARY_SYSTEM_PROMPT =
-  'Você é o CodeAnchor, um assistente que acompanha mudanças de código. ' +
+  'Você é o VigiaCode, um assistente que acompanha mudanças de código. ' +
   'Responda sempre em português do Brasil, de forma objetiva e sem markdown.';
 
 const MAX_TOTAL_DIFF_CHARS = 12_000;

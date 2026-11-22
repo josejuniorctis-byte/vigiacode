@@ -45,7 +45,7 @@ export function FilesPage() {
         <EmptyState
           icon="⚠"
           title="Falha ao carregar os arquivos"
-          description="Verifique se o servidor do CodeAnchor está rodando."
+          description="Verifique se o servidor do VigiaCode está rodando."
         />
       ) : files.length === 0 ? (
         <EmptyState

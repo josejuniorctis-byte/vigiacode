@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /*
- * Schema inicial do CodeAnchor (SQLite).
+ * Schema inicial do VigiaCode (SQLite).
  *
  * A camada de banco fica isolada em src/db/: apenas este arquivo conhece o dialeto.
  * Para suportar PostgreSQL no futuro, criamos src/db/schema.pg.ts e um client

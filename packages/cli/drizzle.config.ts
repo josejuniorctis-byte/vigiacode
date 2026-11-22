@@ -7,6 +7,6 @@ export default defineConfig({
   strict: true,
   verbose: true,
   dbCredentials: {
-    url: './.codeanchor/codeanchor.db',
+    url: './.vigiacode/vigiacode.db',
   },
 });

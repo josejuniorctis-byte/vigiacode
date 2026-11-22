@@ -17,14 +17,14 @@ export interface LogOptions {
   layer?: ChangeEventLayer | undefined;
 }
 
-/** `codeanchor log`: últimos eventos com resumo (e diff truncado). */
+/** `vigiacode log`: últimos eventos com resumo (e diff truncado). */
 export async function runLog(options: LogOptions): Promise<void> {
   const projectRoot = path.resolve(options.cwd);
-  logger.intro('CodeAnchor · log');
+  logger.intro('VigiaCode · log');
 
   if (!configExists(projectRoot)) {
     logger.error('Este projeto ainda não foi inicializado.');
-    logger.hint('Rode "codeanchor init" na raiz do projeto.');
+    logger.hint('Rode "vigiacode init" na raiz do projeto.');
     process.exitCode = 1;
     return;
   }
@@ -34,7 +34,7 @@ export async function runLog(options: LogOptions): Promise<void> {
 
   if (!existsSync(paths.databaseFile)) {
     logger.error('Banco local não encontrado.');
-    logger.hint('Rode "codeanchor init" para criar o banco e aplicar as migrations.');
+    logger.hint('Rode "vigiacode init" para criar o banco e aplicar as migrations.');
     process.exitCode = 1;
     return;
   }
@@ -46,7 +46,7 @@ export async function runLog(options: LogOptions): Promise<void> {
     const project = findProjectByRootPath(opened.db, projectRoot);
     if (!project) {
       logger.error('Projeto não encontrado no banco local.');
-      logger.hint('Rode "codeanchor init" novamente.');
+      logger.hint('Rode "vigiacode init" novamente.');
       process.exitCode = 1;
       return;
     }
@@ -58,7 +58,7 @@ export async function runLog(options: LogOptions): Promise<void> {
 
     if (events.length === 0) {
       logger.info('Nenhum evento registrado ainda.');
-      logger.hint('Rode "codeanchor start" e edite um arquivo para começar.');
+      logger.hint('Rode "vigiacode start" e edite um arquivo para começar.');
       logger.blank();
       return;
     }

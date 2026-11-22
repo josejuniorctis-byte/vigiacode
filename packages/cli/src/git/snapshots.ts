@@ -1,7 +1,7 @@
 import {
   getLatestSnapshot,
   insertSnapshot,
-  type CodeAnchorDatabase,
+  type VigiaCodeDatabase,
   type Snapshot,
 } from '../db/index.js';
 import type { GitRepository } from './diff.js';
@@ -11,7 +11,7 @@ import type { GitRepository } from './diff.js';
  * um commit foi detectado. Retorna o snapshot criado (ou null se nada mudou).
  */
 export async function syncSnapshot(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   git: GitRepository | null,
 ): Promise<Snapshot | null> {
@@ -27,7 +27,7 @@ export async function syncSnapshot(
 }
 
 export interface HeadWatcherOptions {
-  db: CodeAnchorDatabase;
+  db: VigiaCodeDatabase;
   projectId: string;
   git: GitRepository | null;
   intervalMs?: number;

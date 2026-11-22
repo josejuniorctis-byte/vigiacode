@@ -9,7 +9,7 @@ import { runInit } from './init.js';
 const tempDirs: string[] = [];
 
 function makeProject(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'codeanchor-ai-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'vigiacode-ai-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -21,7 +21,7 @@ afterEach(() => {
   }
 });
 
-describe('codeanchor ai', () => {
+describe('vigiacode ai', () => {
   it('ai use troca provider/modelo e grava o config', async () => {
     const projectRoot = makeProject();
     await runInit({ cwd: projectRoot, yes: true });

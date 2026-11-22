@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -9,7 +9,7 @@ import { runInit } from './init.js';
 const tempDirs: string[] = [];
 
 function makeProjectDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'codeanchor-init-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'vigiacode-init-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -56,16 +56,16 @@ afterEach(() => {
   }
 });
 
-describe('codeanchor init', () => {
-  it('cria .codeanchor/, o banco, as tabelas e registra o projeto', async () => {
+describe('vigiacode init', () => {
+  it('cria .vigiacode/, o banco, as tabelas e registra o projeto', async () => {
     const projectRoot = makeProjectDir();
 
     const result = await runInit({ cwd: projectRoot, yes: true });
 
     expect(result.status).toBe('created');
 
-    const configPath = path.join(projectRoot, '.codeanchor', 'config.json');
-    const databasePath = path.join(projectRoot, '.codeanchor', 'codeanchor.db');
+    const configPath = path.join(projectRoot, '.vigiacode', 'config.json');
+    const databasePath = path.join(projectRoot, '.vigiacode', 'vigiacode.db');
     expect(existsSync(configPath)).toBe(true);
     expect(existsSync(databasePath)).toBe(true);
 
@@ -75,7 +75,7 @@ describe('codeanchor init', () => {
     expect(config.llm.provider).toBe('none');
     expect(config.watch.ignore).toContain('node_modules');
     expect(config.server.port).toBe(4317);
-    expect(config.database.file).toBe('codeanchor.db');
+    expect(config.database.file).toBe('vigiacode.db');
 
     expect(tableNames(databasePath)).toEqual(
       expect.arrayContaining(['projects', 'snapshots', 'change_events', 'bindings']),
@@ -121,7 +121,7 @@ describe('codeanchor init', () => {
     ).rejects.toThrow(/modelo/);
   });
 
-  it('adiciona .codeanchor/ ao .gitignore existente com --yes', async () => {
+  it('adiciona .vigiacode/ ao .gitignore existente com --yes', async () => {
     const projectRoot = makeProjectDir();
     const gitignorePath = path.join(projectRoot, '.gitignore');
     writeFileSync(gitignorePath, 'node_modules\ndist\n', 'utf8');
@@ -130,7 +130,7 @@ describe('codeanchor init', () => {
 
     expect(result.gitignore).toBe('added');
     const content = readFileSync(gitignorePath, 'utf8');
-    expect(content).toContain('.codeanchor/');
+    expect(content).toContain('.vigiacode/');
     expect(content.startsWith('node_modules\ndist\n')).toBe(true);
   });
 
@@ -150,7 +150,7 @@ describe('codeanchor init', () => {
 
     expect(asked).toContain('.gitignore');
     expect(result.gitignore).toBe('skipped');
-    expect(readFileSync(gitignorePath, 'utf8')).not.toContain('.codeanchor');
+    expect(readFileSync(gitignorePath, 'utf8')).not.toContain('.vigiacode');
   });
 
   it('avisa quando o .gitignore não existe e não cria o arquivo', async () => {
@@ -166,7 +166,7 @@ describe('codeanchor init', () => {
     const projectRoot = makeProjectDir();
     await runInit({ cwd: projectRoot, name: 'original', yes: true });
 
-    const configPath = path.join(projectRoot, '.codeanchor', 'config.json');
+    const configPath = path.join(projectRoot, '.vigiacode', 'config.json');
     const original = JSON.parse(readFileSync(configPath, 'utf8')) as {
       project: { name: string; rootPath: string };
     };
@@ -178,7 +178,30 @@ describe('codeanchor init', () => {
     expect(result.status).toBe('already-initialized');
     expect(result.projectId).toBeNull();
     expect(readConfig(projectRoot).project.name).toBe('editado-a-mao');
-    expect(projectRows(path.join(projectRoot, '.codeanchor', 'codeanchor.db'))).toHaveLength(1);
+    expect(projectRows(path.join(projectRoot, '.vigiacode', 'vigiacode.db'))).toHaveLength(1);
+  });
+
+  it('mantém .codeanchor/ e codeanchor.db em projeto legado', async () => {
+    const projectRoot = makeProjectDir();
+    mkdirSync(path.join(projectRoot, '.codeanchor'), { recursive: true });
+    writeFileSync(
+      path.join(projectRoot, '.codeanchor', 'config.json'),
+      JSON.stringify({ version: 1, project: { name: 'legado', rootPath: projectRoot } }),
+      'utf8',
+    );
+    const gitignorePath = path.join(projectRoot, '.gitignore');
+    writeFileSync(gitignorePath, 'node_modules\n', 'utf8');
+
+    const result = await runInit({ cwd: projectRoot, name: 'continua', force: true, yes: true });
+
+    expect(result.status).toBe('reinitialized');
+    expect(result.configPath).toBe(path.join(projectRoot, '.codeanchor', 'config.json'));
+    expect(result.databasePath).toBe(path.join(projectRoot, '.codeanchor', 'codeanchor.db'));
+    expect(existsSync(path.join(projectRoot, '.vigiacode'))).toBe(false);
+    expect(readFileSync(gitignorePath, 'utf8')).toContain('.codeanchor/');
+    expect(projectRows(result.databasePath)).toEqual([
+      { name: 'continua', root_path: projectRoot },
+    ]);
   });
 
   it('recria a configuração com --force mantendo um único registro de projeto', async () => {
@@ -190,7 +213,7 @@ describe('codeanchor init', () => {
     expect(result.status).toBe('reinitialized');
     expect(readConfig(projectRoot).project.name).toBe('segundo');
 
-    const databasePath = path.join(projectRoot, '.codeanchor', 'codeanchor.db');
+    const databasePath = path.join(projectRoot, '.vigiacode', 'vigiacode.db');
     expect(projectRows(databasePath)).toEqual([{ name: 'segundo', root_path: projectRoot }]);
   });
 });

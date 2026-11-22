@@ -1,6 +1,7 @@
 import {
   ANTHROPIC_API_KEY_ENV,
-  CODEANCHOR_API_KEY_ENV,
+  LEGACY_CODEANCHOR_API_KEY_ENV,
+  VIGIACODE_API_KEY_ENV,
   GEMINI_API_KEY_ENV,
   GOOGLE_API_KEY_ENV,
   OPENAI_API_KEY_ENV,
@@ -24,13 +25,18 @@ export function requiresApiKey(provider: LlmProvider): boolean {
 export function apiKeyCandidates(provider: LlmProvider): string[] {
   switch (provider) {
     case 'openai':
-      return [OPENAI_API_KEY_ENV, CODEANCHOR_API_KEY_ENV];
+      return [OPENAI_API_KEY_ENV, VIGIACODE_API_KEY_ENV, LEGACY_CODEANCHOR_API_KEY_ENV];
     case 'anthropic':
-      return [ANTHROPIC_API_KEY_ENV, CODEANCHOR_API_KEY_ENV];
+      return [ANTHROPIC_API_KEY_ENV, VIGIACODE_API_KEY_ENV, LEGACY_CODEANCHOR_API_KEY_ENV];
     case 'gemini':
-      return [GEMINI_API_KEY_ENV, GOOGLE_API_KEY_ENV, CODEANCHOR_API_KEY_ENV];
+      return [
+        GEMINI_API_KEY_ENV,
+        GOOGLE_API_KEY_ENV,
+        VIGIACODE_API_KEY_ENV,
+        LEGACY_CODEANCHOR_API_KEY_ENV,
+      ];
     case 'openai-compatible':
-      return [CODEANCHOR_API_KEY_ENV];
+      return [VIGIACODE_API_KEY_ENV, LEGACY_CODEANCHOR_API_KEY_ENV];
     case 'none':
     case 'ollama':
     default:
@@ -72,7 +78,7 @@ export class MissingApiKeyError extends Error {
 }
 
 export function missingKeyMessage(provider: LlmProvider, variables: string[]): string {
-  const primary = variables[0] ?? CODEANCHOR_API_KEY_ENV;
+  const primary = variables[0] ?? VIGIACODE_API_KEY_ENV;
   const alternatives = variables.slice(1);
 
   const lines = [
@@ -82,7 +88,7 @@ export function missingKeyMessage(provider: LlmProvider, variables: string[]): s
       : `Defina ${primary}.`,
     `  Bash:       export ${primary}="sua-chave"`,
     `  PowerShell: $env:${primary}="sua-chave"`,
-    `  .env:       ${primary}=sua-chave  (em .codeanchor/.env)`,
+    `  .env:       ${primary}=sua-chave  (em .vigiacode/.env ou .codeanchor/.env)`,
   ];
 
   return lines.join('\n');

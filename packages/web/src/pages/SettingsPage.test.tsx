@@ -19,7 +19,7 @@ const config: AppConfig = {
     fallbackProviders: ['none'],
   },
   server: { host: 'localhost', port: 4317 },
-  database: { dialect: 'sqlite', file: 'codeanchor.db' },
+  database: { dialect: 'sqlite', file: 'vigiacode.db' },
 };
 
 describe('SettingsPage', () => {

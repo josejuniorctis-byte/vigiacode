@@ -44,6 +44,7 @@ interface InitCliOptions {
   aiTimeout?: number;
   yes?: boolean;
   force?: boolean;
+  gitignore?: boolean;
 }
 
 interface StartCliOptions {
@@ -157,18 +158,18 @@ export function createProgram(): Command {
   const program = new Command();
 
   program
-    .name('codeanchor')
+    .name('vigiacode')
     .description(
-      'CodeAnchor — AI Dev Companion e rastreador de arquitetura para projetos desenvolvidos com agentes de IA.',
+      'VigiaCode — AI Dev Companion e rastreador de arquitetura para projetos desenvolvidos com agentes de IA.',
     )
     .version(VERSION, '-v, --version', 'mostra a versão da CLI')
     .helpOption('-h, --help', 'mostra a ajuda')
     .usage('<comando> [opções]')
-    .showHelpAfterError('Use "codeanchor --help" para ver os comandos disponíveis.');
+    .showHelpAfterError('Use "vigiacode --help" para ver os comandos disponíveis.');
 
   program
     .command('init')
-    .description('Inicializa o CodeAnchor na raiz do projeto atual')
+    .description('Inicializa o VigiaCode na raiz do projeto atual')
     .option('--name <nome>', 'nome do projeto (padrão: nome da pasta)')
     .option(
       '--provider <provider>',
@@ -201,7 +202,8 @@ export function createProgram(): Command {
       'timeout de cada chamada de IA em ms (padrão: 15000)',
       parsePositiveInt('ai-timeout', 100),
     )
-    .option('-y, --yes', 'não pergunta nada e adiciona .codeanchor/ ao .gitignore')
+    .option('-y, --yes', 'não pergunta nada e adiciona o diretório de estado ao .gitignore')
+    .option('--no-gitignore', 'não altera o .gitignore do projeto')
     .option('-f, --force', 'recria a configuração mesmo se o projeto já estiver inicializado')
     .action(async (options: InitCliOptions) => {
       let provider = options.provider;
@@ -231,7 +233,7 @@ export function createProgram(): Command {
       if (provider === 'openai-compatible' && !baseUrl) {
         logger.error('O provider "openai-compatible" exige --base-url.');
         logger.hint(
-          'codeanchor init --provider openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>',
+          'vigiacode init --provider openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>',
         );
         process.exitCode = 1;
         return;
@@ -249,6 +251,7 @@ export function createProgram(): Command {
         timeoutMs: options.aiTimeout,
         yes: options.yes,
         force: options.force,
+        skipGitignore: options.gitignore === false,
       });
     });
 
@@ -362,19 +365,19 @@ export function createProgram(): Command {
     'after',
     `
 Exemplos:
-  codeanchor init                      prepara .codeanchor/ e o banco local
-  codeanchor init --provider ollama    configura IA local (modelo padrão: llama3.2)
-  codeanchor init --provider openai    usa OpenAI (chave em OPENAI_API_KEY)
-  codeanchor ai test                   testa o provider configurado
-  codeanchor ai use anthropic --model claude-3-5-haiku-latest
-  codeanchor start                     sobe a API e o vigia em http://localhost:4317
-  codeanchor start --no-watch          sobe só a API, sem observar arquivos
-  codeanchor log                       mostra os últimos eventos e resumos
-  codeanchor log --layer backend -n 5  filtra os eventos de back-end
-  codeanchor bindings scan             detecta amarrações e falha em CI se houver 🔴
-  codeanchor bindings scan --fail-on yellow
-  codeanchor bindings list --status red --layer frontend
-  codeanchor bindings matrix           matriz entidade × front × back × banco
+  vigiacode init                      prepara .vigiacode/ e o banco local
+  vigiacode init --provider ollama    configura IA local (modelo padrão: llama3.2)
+  vigiacode init --provider openai    usa OpenAI (chave em OPENAI_API_KEY)
+  vigiacode ai test                   testa o provider configurado
+  vigiacode ai use anthropic --model claude-3-5-haiku-latest
+  vigiacode start                     sobe a API e o vigia em http://localhost:4317
+  vigiacode start --no-watch          sobe só a API, sem observar arquivos
+  vigiacode log                       mostra os últimos eventos e resumos
+  vigiacode log --layer backend -n 5  filtra os eventos de back-end
+  vigiacode bindings scan             detecta amarrações e falha em CI se houver 🔴
+  vigiacode bindings scan --fail-on yellow
+  vigiacode bindings list --status red --layer frontend
+  vigiacode bindings matrix           matriz entidade × front × back × banco
 `,
   );
 

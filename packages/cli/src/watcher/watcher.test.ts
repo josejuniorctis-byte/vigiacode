@@ -9,7 +9,7 @@ import type { RawFileChange } from './batcher.js';
 const tempDirs: string[] = [];
 
 function makeProject(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'codeanchor-watch-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'vigiacode-watch-'));
   tempDirs.push(dir);
   mkdirSync(path.join(dir, 'src'), { recursive: true });
   mkdirSync(path.join(dir, 'node_modules'), { recursive: true });

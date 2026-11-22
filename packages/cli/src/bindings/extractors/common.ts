@@ -11,6 +11,14 @@ export function ref(file: string, line: number): SourceRef {
   return { file, line };
 }
 
+/** Artefatos de build com hash no nome não contêm contratos de código. */
+export function isGeneratedBindingFile(file: string): boolean {
+  const normalized = file.replaceAll('\\', '/');
+  const base = normalized.split('/').pop() ?? normalized;
+  if (/^[A-Za-z0-9_$-]+-[A-Za-z0-9_-]{8,}\.(?:js|mjs|cjs|css)$/.test(base)) return true;
+  return /\.(?:bundle|chunk|min)\.(?:js|mjs|cjs|css)$/i.test(base);
+}
+
 /** Remove prefixos de API, versão e parâmetros para achar a entidade. */
 export function entityFromRoutePath(routePath: string): string {
   const clean = routePath
@@ -70,11 +78,16 @@ export function normalizeRoutePath(raw: string): string {
       // Mantém o texto original.
     }
   }
+
+  // Remove a variável de base URL antes de interpretar `?`/`#`: o operador
+  // opcional (`sessao?.apiBase`) não é uma query string.
+  value = value.replace(/^\s*\$\{[^}]*\}\s*/, '');
+  value = value.replace(/\$\{[^}]*\}/g, ':param');
   value = value.split(/[?#]/)[0] ?? value;
   value = value.replaceAll('\\', '/');
+
   if (!value.startsWith('/')) value = `/${value}`;
   value = value
-    .replace(/\$\{[^}]*\}/g, ':param')
     .replace(/\{[^}]+\}/g, ':param')
     .replace(/:[A-Za-z0-9_]+/g, ':param')
     .replace(/\/\d+(?=\/|$)/g, '/:param')

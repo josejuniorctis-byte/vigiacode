@@ -16,7 +16,7 @@ import { startHeadWatcher, syncSnapshot } from './snapshots.js';
 const tempDirs: string[] = [];
 
 function makeTempDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'codeanchor-git-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'vigiacode-git-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -25,8 +25,8 @@ async function makeRepo(): Promise<{ dir: string; git: SimpleGit }> {
   const dir = makeTempDir();
   const git = simpleGit(dir);
   await git.init();
-  await git.addConfig('user.email', 'codeanchor@test.dev');
-  await git.addConfig('user.name', 'CodeAnchor Test');
+  await git.addConfig('user.email', 'vigiacode@test.dev');
+  await git.addConfig('user.name', 'VigiaCode Test');
   return { dir, git };
 }
 
@@ -106,7 +106,7 @@ describe('GitRepository', () => {
     const result = await repository!.diffForFile({ path: 'grande.ts', changeType: 'change' }, 512);
 
     expect(result.truncated).toBe(true);
-    expect(result.diff).toContain('[diff truncado pelo CodeAnchor');
+    expect(result.diff).toContain('[diff truncado pelo VigiaCode');
   });
 
   it('não é repositório git → open devolve null', async () => {

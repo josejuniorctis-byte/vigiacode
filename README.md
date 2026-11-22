@@ -1,18 +1,18 @@
-# ⚓ CodeAnchor
+# ⚓ VigiaCode
 
 **AI Dev Companion e rastreador de arquitetura para quem desenvolve com agentes de IA** (Cursor, Claude Code, Windsurf).
 
-O CodeAnchor acompanha o seu projeto enquanto o código evolui: registra cada mudança com o diff, resume o que aconteceu e, nas próximas etapas, vai detectar **amarrações pendentes** entre front-end, back-end e banco.
+O VigiaCode acompanha o seu projeto enquanto o código evolui: registra cada mudança com o diff, resume o que aconteceu e, nas próximas etapas, vai detectar **amarrações pendentes** entre front-end, back-end e banco.
 
 > **Status: Etapa 4 — Detector de Amarrações.**
-> O `codeanchor start` serve um dashboard local em `http://localhost:4317` com linha do tempo em tempo real, agenda por dia, ranking de arquivos, configurações, status da IA e o **mapa de amarrações entre front-end, back-end e banco** (🔴/🟡/🟢), atualizado pelo vigia.
+> O `vigiacode start` serve um dashboard local em `http://localhost:4317` com linha do tempo em tempo real, agenda por dia, ranking de arquivos, configurações, status da IA e o **mapa de amarrações entre front-end, back-end e banco** (🔴/🟡/🟢), atualizado pelo vigia.
 
 ---
 
 ## O que já existe
 
 - Monorepo com **pnpm workspaces** (`packages/cli` e `packages/web`).
-- CLI `codeanchor` em TypeScript strict/ESM com **Commander**.
+- CLI `vigiacode` em TypeScript strict/ESM com **Commander**.
 - Banco local **SQLite** (better-sqlite3) com **Drizzle ORM** e migrations via **drizzle-kit**.
 - Servidor **Fastify** em `localhost:4317` com health check, projeto, eventos, snapshots, estatísticas, arquivos, SSE e status/teste da IA.
 - **Vigia de arquivos** com chokidar: ignores do config + `.gitignore`, debounce e captura de `add`/`change`/`unlink`.
@@ -20,8 +20,8 @@ O CodeAnchor acompanha o seu projeto enquanto o código evolui: registra cada mu
 - **Multi-provedor de IA**: `openai`, `anthropic`, `gemini`, `openai-compatible` (OpenRouter, Groq, DeepSeek, LM Studio…), `ollama` e o heurístico `none`, com fila assíncrona e fallback em cadeia.
 - **Detector de amarrações** (Etapa 4): extractors genéricos para React/Vue/Svelte, Express/Fastify/Nest/Next, Spring, FastAPI, Drizzle, Prisma, TypeORM, JPA e migrations SQL; regras R1–R10, matriz entidade × camadas, scan incremental pelo vigia, cache por hash e explicação com IA.
 - **Dashboard em React 19 + Vite 7 + Tailwind 4** com tema claro/escuro, linha do tempo, agenda de evolução, arquivos, tela de **Amarrações** com SSE e configurações.
-- Comandos `codeanchor init`, `start`, `log`, `ai test`, `ai use` e `bindings scan/list/matrix`, com mensagens em português.
-- ESLint + Prettier + **168 testes** (152 no CLI + 16 no web) com **Vitest** e **Testing Library**.
+- Comandos `vigiacode init`, `start`, `log`, `ai test`, `ai use` e `bindings scan/list/matrix`, com mensagens em português.
+- ESLint + Prettier + **174 testes** (158 no CLI + 16 no web) com **Vitest** e **Testing Library**.
 
 **Ainda não implementado (proposital):** relatórios de evolução e snapshots de arquitetura (Etapa 6).
 
@@ -29,11 +29,11 @@ O CodeAnchor acompanha o seu projeto enquanto o código evolui: registra cada mu
 
 ## O Vigia
 
-Quando você roda `codeanchor start`, o CodeAnchor:
+Quando você roda `vigiacode start`, o VigiaCode:
 
 1. Abre o banco local e aplica as migrations pendentes.
 2. Detecta se o projeto é um repositório Git (se não for, avisa e segue registrando eventos sem diff).
-3. Observa a raiz do projeto com **chokidar**, respeitando `watch.ignore`, o `.gitignore` do usuário e ignores fixos (`node_modules`, `dist`, `.git`, `.codeanchor`, cobertura etc.).
+3. Observa a raiz do projeto com **chokidar**, respeitando `watch.ignore`, o `.gitignore` do usuário e ignores fixos (`node_modules`, `dist`, `.git`, `.vigiacode`, cobertura etc.).
 4. Ignora binários e arquivos maiores que `watch.maxFileSizeKb` (padrão 500 KB).
 5. Agrupa mudanças rápidas num **lote** após `watch.debounceMs` (padrão 1500 ms) — ideal para agentes que editam vários arquivos de uma vez.
 6. Para cada arquivo do lote, captura o diff em relação ao `HEAD` (`git diff HEAD`), gerando diff completo para arquivos novos/untracked e de remoção para `unlink`.
@@ -47,58 +47,58 @@ Quando você roda `codeanchor start`, o CodeAnchor:
 🛰️ 3 arquivos alterados (frontend, backend, database) — resumo: 3 arquivos alterados em src, db: +7 −0. Camada: frontend, backend, database. Impacto provável: ...
 ```
 
-Use `codeanchor start --no-watch` para subir apenas a API, sem observar arquivos.
+Use `vigiacode start --no-watch` para subir apenas a API, sem observar arquivos.
 
 ### Resumos e IA
 
-| Provider            | Variável de ambiente                          | Modelo padrão             | Exemplo de uso                                                                                 |
-| ------------------- | --------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------- |
-| `none`              | —                                             | heurístico local          | `codeanchor ai use none`                                                                       |
-| `openai`            | `OPENAI_API_KEY` (ou `CODEANCHOR_API_KEY`)    | `gpt-4o-mini`             | `codeanchor ai use openai --model gpt-4o-mini`                                                 |
-| `anthropic`         | `ANTHROPIC_API_KEY` (ou `CODEANCHOR_API_KEY`) | `claude-3-5-haiku-latest` | `codeanchor ai use anthropic --model claude-3-5-haiku-latest`                                  |
-| `gemini`            | `GEMINI_API_KEY` ou `GOOGLE_API_KEY`          | `gemini-2.0-flash`        | `codeanchor ai use gemini --model gemini-2.0-flash`                                            |
-| `openai-compatible` | `CODEANCHOR_API_KEY`                          | definido por você         | `codeanchor ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>` |
-| `ollama`            | —                                             | `llama3.2`                | `codeanchor ai use ollama --model llama3.2`                                                    |
+| Provider            | Variável de ambiente                         | Modelo padrão             | Exemplo de uso                                                                                |
+| ------------------- | -------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------- |
+| `none`              | —                                            | heurístico local          | `vigiacode ai use none`                                                                       |
+| `openai`            | `OPENAI_API_KEY` (ou `VIGIACODE_API_KEY`)    | `gpt-4o-mini`             | `vigiacode ai use openai --model gpt-4o-mini`                                                 |
+| `anthropic`         | `ANTHROPIC_API_KEY` (ou `VIGIACODE_API_KEY`) | `claude-3-5-haiku-latest` | `vigiacode ai use anthropic --model claude-3-5-haiku-latest`                                  |
+| `gemini`            | `GEMINI_API_KEY` ou `GOOGLE_API_KEY`         | `gemini-2.0-flash`        | `vigiacode ai use gemini --model gemini-2.0-flash`                                            |
+| `openai-compatible` | `VIGIACODE_API_KEY`                          | definido por você         | `vigiacode ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>` |
+| `ollama`            | —                                            | `llama3.2`                | `vigiacode ai use ollama --model llama3.2`                                                    |
 
-As chaves vivem **somente** em variáveis de ambiente (ou no `.codeanchor/.env`), nunca no `config.json` ou no banco. `CODEANCHOR_API_KEY` funciona como fallback genérico para OpenAI, Anthropic e Gemini, e é a variável usada por `openai-compatible`. Se a IA falhar, expirar ou não estiver configurada, o resumo heurístico assume automaticamente.
+As chaves vivem **somente** em variáveis de ambiente (ou no `.vigiacode/.env`), nunca no `config.json` ou no banco. `VIGIACODE_API_KEY` funciona como fallback genérico para OpenAI, Anthropic e Gemini, e é a variável usada por `openai-compatible`. Se a IA falhar, expirar ou não estiver configurada, o resumo heurístico assume automaticamente.
 
 **Exemplos:**
 
 ```bash
 # OpenAI
 export OPENAI_API_KEY="sk-..."                # PowerShell: $env:OPENAI_API_KEY="sk-..."
-codeanchor ai use openai --model gpt-4o-mini
+vigiacode ai use openai --model gpt-4o-mini
 
 # Anthropic
 export ANTHROPIC_API_KEY="sk-ant-..."
-codeanchor ai use anthropic --model claude-3-5-haiku-latest
+vigiacode ai use anthropic --model claude-3-5-haiku-latest
 
 # Gemini (GOOGLE_API_KEY também é aceita)
 export GEMINI_API_KEY="..."
-codeanchor ai use gemini --model gemini-2.0-flash
+vigiacode ai use gemini --model gemini-2.0-flash
 
 # OpenRouter / Groq / DeepSeek / LM Studio (API compatível com OpenAI)
-export CODEANCHOR_API_KEY="sk-or-..."
-codeanchor ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model meta-llama/llama-3.1-8b-instruct
+export VIGIACODE_API_KEY="sk-or-..."
+vigiacode ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model meta-llama/llama-3.1-8b-instruct
 
 # Ollama local
 ollama serve && ollama pull llama3.2
-codeanchor ai use ollama --model llama3.2
+vigiacode ai use ollama --model llama3.2
 ```
 
 **Teste e diagnóstico:**
 
 ```bash
-codeanchor ai test       # envia um prompt curto e mostra tempo, modelo e resposta
+vigiacode ai test       # envia um prompt curto e mostra tempo, modelo e resposta
 ```
 
 O comando explica erros comuns: chave ausente (com exemplos Bash/PowerShell), HTTP 401/403, modelo/endpoint não encontrado (404), timeout e Ollama fora do ar.
 
-**Arquivo `.codeanchor/.env`** (já coberto pelo `.codeanchor/` no `.gitignore`):
+**Arquivo `.vigiacode/.env`** (já coberto pelo `.vigiacode/` no `.gitignore`):
 
 ```bash
 OPENAI_API_KEY=sk-...
-CODEANCHOR_API_KEY=sk-or-...
+VIGIACODE_API_KEY=sk-or-...
 ```
 
 O `.env` é carregado no `start` e no `ai test`, sem sobrescrever variáveis já definidas no ambiente.
@@ -117,9 +117,9 @@ O prompt pede um resumo curto em português com: o que mudou, a camada afetada e
 
 ## Dashboard — Agenda de Evolução
 
-`codeanchor start` serve o dashboard em **http://localhost:4317**. A interface é local, em português e funciona offline (exceto as APIs de IA, quando configuradas).
+`vigiacode start` serve o dashboard em **http://localhost:4317**. A interface é local, em português e funciona offline (exceto as APIs de IA, quando configuradas).
 
-![Dashboard do CodeAnchor — linha do tempo](docs/dashboard.png)
+![Dashboard do VigiaCode — linha do tempo](docs/dashboard.png)
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -148,7 +148,7 @@ O prompt pede um resumo curto em português com: o que mudou, a camada afetada e
 
 ```bash
 pnpm dev          # CLI em watch + Vite em http://localhost:5173 (proxy /api → 4317)
-pnpm build        # gera packages/web/dist, servido pelo codeanchor start
+pnpm build        # gera packages/web/dist, servido pelo vigiacode start
 ```
 
 Rotas da interface: `/` (linha do tempo), `/agenda`, `/files`, `/bindings`, `/settings`.
@@ -205,7 +205,7 @@ O scan é **serializado** para evitar corrida entre `start`, vigia e API. Arquiv
 
 ### Configurar, desligar e aceitar falsos positivos
 
-Tudo em `.codeanchor/config.json`, na chave `bindings` (configs antigos recebem os padrões automaticamente):
+Tudo em `.vigiacode/config.json`, na chave `bindings` (configs antigos recebem os padrões automaticamente):
 
 ```json
 "bindings": {
@@ -223,26 +223,28 @@ Tudo em `.codeanchor/config.json`, na chave `bindings` (configs antigos recebem 
   },
   "ignore": ["src/generated/**", "**/*.stories.tsx"],
   "acceptedFalsePositives": ["R2:user:nickname", "R3:audit_log:created_at"],
-  "semanticMatching": true
+  "semanticMatching": true,
+  "r1IncludeTypes": true
 }
 ```
 
 - `rules.<R>.enabled=false` desliga a regra;
 - `rules.<R>.severity` troca 🔴 por 🟡 (ou vice-versa);
-- `ignore` aceita os mesmos padrões glob do vigia;
+- `ignore` aceita os mesmos padrões glob do vigia (testes, `dist`, `target`, `__mocks__` e artefatos gerados já são ignorados por padrão);
 - `acceptedFalsePositives` aceita `"R1:user:phone"` ou `{ "rule": "R1", "entity": "user", "field": "phone" }`;
-- `semanticMatching` liga a segunda fase do matcher (sinônimos e LLM opcional); com provider `none` só a heurística local roda, sem rede.
+- `semanticMatching` liga a segunda fase do matcher (sinônimos e LLM opcional); com provider `none` só a heurística local roda, sem rede;
+- `r1IncludeTypes` inclui campos declarados apenas em tipos/interfaces do front na R1. Desligue (`false`) em projetos com muitos view models/projeções para reduzir ruído; formulários e payloads continuam sendo checados.
 
 ### CLI
 
 ```bash
-codeanchor bindings scan                 # scan completo; exit code 1 se houver 🔴
-codeanchor bindings scan --fail-on red   # explícito (padrão)
-codeanchor bindings scan --fail-on yellow
-codeanchor bindings scan --fail-on none  # nunca falha (relatórios)
-codeanchor bindings list --status red --layer backend
-codeanchor bindings list --rule R3 --resolved
-codeanchor bindings matrix               # entidade × front × back × banco
+vigiacode bindings scan                 # scan completo; exit code 1 se houver 🔴
+vigiacode bindings scan --fail-on red   # explícito (padrão)
+vigiacode bindings scan --fail-on yellow
+vigiacode bindings scan --fail-on none  # nunca falha (relatórios)
+vigiacode bindings list --status red --layer backend
+vigiacode bindings list --rule R3 --resolved
+vigiacode bindings matrix               # entidade × front × back × banco
 ```
 
 Saída colorida com regra, entidade/campo, referências `arquivo:linha`, sugestão e contagens. Perfeito para CI com `--fail-on`.
@@ -300,10 +302,14 @@ Em `packages/cli/test/fixtures/`:
 | `next-prisma`           | Next.js + Prisma             | R1, R2, R3 (2), R4, R5, R6, R7 — e 4 campos verdes                    |
 
 ```bash
-pnpm --filter codeanchor test
+pnpm --filter vigiacode test
 ```
 
 Os testes cobrem extractors, normalizador, matcher, R1–R8/R9/R10, scan incremental, resolução de pendências, cache, rotas da API, explicação e a tela Amarrações.
+
+### Validação em projeto real
+
+O detector foi rodado no repositório **SythaxSystem** (React + Spring Boot + Flyway) em modo somente leitura. Resultado: **2.589 arquivos analisados**, **3🔴 / 1.005🟡 / 0🟢**, primeiro scan em **88 s** e reexecuções com cache em **15–22 s**. As 10 pendências mais relevantes, a amostra de 20 para estimar falsos positivos (~75% de precisão) e os ajustes de config estão em [docs/validacao-sythaxsystem.md](docs/validacao-sythaxsystem.md).
 
 ---
 
@@ -328,20 +334,20 @@ A camada de banco fica isolada em `packages/cli/src/db/` — apenas ela conhece 
 ## Estrutura
 
 ```text
-codeanchor/
+vigiacode/
 ├─ package.json            scripts: dev, build, lint, test
 ├─ pnpm-workspace.yaml
 ├─ tsconfig.base.json
 ├─ eslint.config.js
 ├─ packages/
 │  ├─ cli/
-│  │  ├─ package.json      name "codeanchor", bin "codeanchor" → dist/index.js
+│  │  ├─ package.json      name "vigiacode", bin "vigiacode" → dist/index.js
 │  │  ├─ drizzle/          migrations SQL (0000_init + 0001_watcher + 0002_bindings)
 │  │  ├─ test/fixtures/    React+Fastify+Drizzle, React+Spring+Flyway, Next+Prisma
 │  │  ├─ drizzle.config.ts
 │  │  └─ src/
 │  │     ├─ index.ts       entry do Commander
-│  │     ├─ config.ts      leitura/escrita do .codeanchor/config.json (watch/llm/bindings)
+│  │     ├─ config.ts      leitura/escrita do .vigiacode/config.json (watch/llm/bindings)
 │  │     ├─ commands/      init.ts, start.ts, log.ts, ai.ts, bindings.ts
 │  │     ├─ db/            schema.ts, client.ts, migrate.ts, repository.ts, bindings-repository.ts
 │  │     ├─ bindings/      extractors, names, matcher, rules, scanner, matrix, explain
@@ -372,11 +378,11 @@ pnpm install
 # 2. buildar CLI e web
 pnpm build
 
-# 3. inicializar o CodeAnchor neste repositório (para testar a fundação)
-pnpm codeanchor init
+# 3. inicializar o VigiaCode neste repositório (para testar a fundação)
+pnpm vigiacode init
 
 # 4. subir a API, o vigia e a interface em http://localhost:4317
-pnpm codeanchor start
+pnpm vigiacode start
 ```
 
 ### Usar em um projeto seu
@@ -385,24 +391,24 @@ O `init` roda na raiz do projeto que você quer acompanhar:
 
 ```bash
 cd /caminho/do/meu-projeto
-node /caminho/para/codeanchor/packages/cli/dist/index.js init
-node /caminho/para/codeanchor/packages/cli/dist/index.js start
+node /caminho/para/vigiacode/packages/cli/dist/index.js init
+node /caminho/para/vigiacode/packages/cli/dist/index.js start
 ```
 
-Para ter o comando `codeanchor` disponível em qualquer pasta, linke o pacote globalmente:
+Para ter o comando `vigiacode` disponível em qualquer pasta, linke o pacote globalmente:
 
 ```bash
 cd packages/cli
 pnpm link --global      # ou: npm link
-codeanchor init
-codeanchor start
+vigiacode init
+vigiacode start
 ```
 
 Depois de publicado no npm, os mesmos comandos ficam:
 
 ```bash
-npx codeanchor init
-npx codeanchor start
+npx vigiacode init
+npx vigiacode start
 ```
 
 ### Teste rápido
@@ -413,10 +419,10 @@ curl http://localhost:4317/api/health
 curl http://localhost:4317/api/ai/status
 
 # teste o provider de IA configurado
-codeanchor ai test
+vigiacode ai test
 
 # edite alguns arquivos e veja o lote no terminal; depois:
-codeanchor log
+vigiacode log
 curl -N http://localhost:4317/api/events/stream
 ```
 
@@ -424,17 +430,17 @@ curl -N http://localhost:4317/api/events/stream
 
 ## Comandos da CLI
 
-### `codeanchor init`
+### `vigiacode init`
 
 Executa na raiz do projeto do usuário e:
 
-1. cria `.codeanchor/config.json` e `.codeanchor/codeanchor.db`;
+1. cria `.vigiacode/config.json` e `.vigiacode/vigiacode.db`;
 2. aplica as migrations e registra o projeto na tabela `projects`;
-3. adiciona `.codeanchor/` ao `.gitignore` existente (pergunta antes, ou use `-y/--yes`);
+3. adiciona `.vigiacode/` ao `.gitignore` existente (pergunta antes, ou use `-y/--yes`);
 4. avisa e **não sobrescreve** se o projeto já estiver inicializado (`-f/--force` recria a configuração preservando o banco).
 
 ```bash
-codeanchor init --provider openai --model gpt-4o-mini --yes
+vigiacode init --provider openai --model gpt-4o-mini --yes
 ```
 
 | Flag                   | Descrição                                                                                    |
@@ -448,75 +454,78 @@ codeanchor init --provider openai --model gpt-4o-mini --yes
 | `--max-diff <kb>`      | diffs maiores que isso são truncados (padrão: 200)                                           |
 | `--ai-timeout <ms>`    | timeout por chamada de IA (padrão: 15000)                                                    |
 | `-y, --yes`            | não pergunta nada e atualiza o `.gitignore`                                                  |
+| `--no-gitignore`       | não altera o `.gitignore` (útil para CI/validação somente leitura)                           |
 | `-f, --force`          | recria a configuração mesmo se já inicializado                                               |
 
 Sem `--yes`, o `init` pergunta interativamente o provider e o modelo (e a base URL para `openai-compatible`).
 
-### `codeanchor start`
+**Compatibilidade com CodeAnchor:** projetos já inicializados com a versão anterior continuam funcionando sem migração. Se a raiz tem `.codeanchor/` (e não `.vigiacode/`), o estado é lido e gravado nele, o banco padrão segue `codeanchor.db`, o `.codeanchor/.env` é carregado e `CODEANCHOR_API_KEY` é aceita como fallback da chave. Quando os dois diretórios existem, `.vigiacode/` tem prioridade. Os binários `vigiacode` e `codeanchor` executam o mesmo comando.
+
+### `vigiacode start`
 
 Exige `init` prévio. Sobe o Fastify em `localhost:4317`, inicia o vigia e serve o build de `packages/web/dist` na raiz quando ele existe.
 
 ```bash
-codeanchor start                  # API + vigia
-codeanchor start --port 4400      # outra porta
-codeanchor start --no-watch       # só a API, sem observar arquivos
+vigiacode start                  # API + vigia
+vigiacode start --port 4400      # outra porta
+vigiacode start --no-watch       # só a API, sem observar arquivos
 ```
 
-### `codeanchor log`
+### `vigiacode log`
 
 Lista os últimos eventos capturados, com camada, tipo, contagem de linhas e resumo.
 
 ```bash
-codeanchor log
-codeanchor log --limit 10
-codeanchor log --layer backend
+vigiacode log
+vigiacode log --limit 10
+vigiacode log --layer backend
 ```
 
-### `codeanchor ai test`
+### `vigiacode ai test`
 
 Envia um prompt curto ao provider configurado e mostra tempo de resposta, modelo e amostra do texto — ou o erro explicado.
 
 ```bash
-codeanchor ai test
+vigiacode ai test
 ```
 
-### `codeanchor ai use <provider>`
+### `vigiacode ai use <provider>`
 
 Troca o provider (e opcionalmente modelo/endpoint) sem refazer o `init`.
 
 ```bash
-codeanchor ai use openai --model gpt-4o-mini
-codeanchor ai use anthropic --model claude-3-5-haiku-latest
-codeanchor ai use gemini --model gemini-2.0-flash
-codeanchor ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>
-codeanchor ai use ollama --model llama3.2
-codeanchor ai use none
+vigiacode ai use openai --model gpt-4o-mini
+vigiacode ai use anthropic --model claude-3-5-haiku-latest
+vigiacode ai use gemini --model gemini-2.0-flash
+vigiacode ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>
+vigiacode ai use ollama --model llama3.2
+vigiacode ai use none
 ```
 
-### `codeanchor bindings scan`
+### `vigiacode bindings scan`
 
 Analisa o projeto e atualiza as amarrações. Sai com código 1 quando encontra 🔴 (configurável com `--fail-on red|yellow|none`).
 
 ```bash
-codeanchor bindings scan
-codeanchor bindings scan --fail-on yellow
+vigiacode bindings scan
+vigiacode bindings scan --fail-on yellow
 ```
 
-### `codeanchor bindings list`
+### `vigiacode bindings list`
 
 Lista filtrável, com regra, entidade/campo, mensagem, referências e sugestão.
 
 ```bash
-codeanchor bindings list --status red --layer backend
-codeanchor bindings list --rule R3 --resolved
+vigiacode bindings list --status red --layer backend
+vigiacode bindings list --rule R3 --resolved
 ```
 
-### `codeanchor bindings matrix`
+### `vigiacode bindings matrix`
 
 Imprime a matriz entidade × front-end × back-end × banco do último scan.
 
 ```bash
-codeanchor bindings matrix
+vigiacode bindings matrix
 ```
 
 ---
@@ -558,7 +567,7 @@ SSE no terminal:
 ```bash
 curl -N http://localhost:4317/api/events/stream
 # retry: 3000
-# : conectado ao CodeAnchor
+# : conectado ao VigiaCode
 # event: change
 # data: {"type":"change","event":{...}}
 ```
@@ -583,12 +592,12 @@ A migration **`0001_watcher.sql`** adiciona `batch_id`, `layer` e `diff_truncate
 Migrations são geradas com:
 
 ```bash
-pnpm --filter codeanchor db:generate
+pnpm --filter vigiacode db:generate
 ```
 
 O `init` e o `start` aplicam as migrations pendentes automaticamente (idempotente).
 
-Exemplo de `.codeanchor/config.json`:
+Exemplo de `.vigiacode/config.json`:
 
 ```json
 {
@@ -596,7 +605,7 @@ Exemplo de `.codeanchor/config.json`:
   "project": { "name": "meu-app", "rootPath": "/caminho/meu-app" },
   "watch": {
     "paths": ["."],
-    "ignore": ["node_modules", "dist", "build", "coverage", ".git", ".codeanchor", "*.lock"],
+    "ignore": ["node_modules", "dist", "build", "coverage", ".git", ".vigiacode", "*.lock"],
     "debounceMs": 1500,
     "maxFileSizeKb": 500
   },
@@ -625,10 +634,11 @@ Exemplo de `.codeanchor/config.json`:
     },
     "ignore": [],
     "acceptedFalsePositives": [],
-    "semanticMatching": true
+    "semanticMatching": true,
+    "r1IncludeTypes": true
   },
   "server": { "host": "localhost", "port": 4317 },
-  "database": { "dialect": "sqlite", "file": "codeanchor.db" }
+  "database": { "dialect": "sqlite", "file": "vigiacode.db" }
 }
 ```
 
@@ -638,15 +648,15 @@ Configs criados nas Etapas 1 e 2 continuam funcionando: campos novos recebem os 
 
 ## Scripts
 
-| Comando             | O que faz                                         |
-| ------------------- | ------------------------------------------------- |
-| `pnpm dev`          | CLI em watch + Vite dev server (proxy para a API) |
-| `pnpm build`        | build do CLI (tsc) e do web (vite)                |
-| `pnpm test`         | testes do CLI e do web com Vitest (168 testes)    |
-| `pnpm lint`         | ESLint em todo o monorepo                         |
-| `pnpm typecheck`    | TypeScript strict sem emitir                      |
-| `pnpm format`       | Prettier em todo o repositório                    |
-| `pnpm codeanchor …` | executa a CLI buildada                            |
+| Comando            | O que faz                                         |
+| ------------------ | ------------------------------------------------- |
+| `pnpm dev`         | CLI em watch + Vite dev server (proxy para a API) |
+| `pnpm build`       | build do CLI (tsc) e do web (vite)                |
+| `pnpm test`        | testes do CLI e do web com Vitest (174 testes)    |
+| `pnpm lint`        | ESLint em todo o monorepo                         |
+| `pnpm typecheck`   | TypeScript strict sem emitir                      |
+| `pnpm format`      | Prettier em todo o repositório                    |
+| `pnpm vigiacode …` | executa a CLI buildada                            |
 
 ---
 
@@ -655,7 +665,7 @@ Configs criados nas Etapas 1 e 2 continuam funcionando: campos novos recebem os 
 | Etapa | Nome                       | Entrega                                                                                       |
 | ----- | -------------------------- | --------------------------------------------------------------------------------------------- |
 | **1** | **Fundação & Estrutura**   | **Monorepo, CLI, config, banco SQLite/Drizzle, API Fastify, esqueleto web**                   |
-| **2** | **O Vigia**                | **Watcher + diff Git + resumos IA + SSE + `codeanchor log`**                                  |
+| **2** | **O Vigia**                | **Watcher + diff Git + resumos IA + SSE + `vigiacode log`**                                   |
 | 2.1   | Multi-provedor de IA       | OpenAI, Anthropic, Gemini, APIs OpenAI-compatible, Ollama, fallback em cadeia e `ai test/use` |
 | **3** | **Dashboard Visual**       | **Linha do tempo SSE, Agenda de Evolução, arquivos, configurações, tema e diff drawer**       |
 | **4** | **Detector de Amarrações** | **Extractors multi-stack, regras R1–R10, matriz, scan incremental, SSE, CLI, dashboard e IA** |
@@ -666,4 +676,4 @@ Configs criados nas Etapas 1 e 2 continuam funcionando: campos novos recebem os 
 
 ## Licença
 
-[MIT](LICENSE) © 2026 CodeAnchor contributors
+[MIT](LICENSE) © 2026 VigiaCode contributors

@@ -175,6 +175,6 @@ describe('TimelinePage', () => {
     expect(await screen.findByText('const alterada = 1;')).toBeInTheDocument();
     expect(screen.getAllByTestId('diff-add').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('diff-del').length).toBeGreaterThan(0);
-    expect(screen.getByText(/Diff truncado pelo CodeAnchor/)).toBeInTheDocument();
+    expect(screen.getByText(/Diff truncado pelo VigiaCode/)).toBeInTheDocument();
   });
 });

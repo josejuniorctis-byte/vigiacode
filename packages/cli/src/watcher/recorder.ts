@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { CodeAnchorConfig } from '../config.js';
+import type { VigiaCodeConfig } from '../config.js';
 import {
   insertChangeEvents,
   updateChangeEventSummary,
   type ChangeEvent,
   type ChangeEventLayer,
-  type CodeAnchorDatabase,
+  type VigiaCodeDatabase,
   type Project,
 } from '../db/index.js';
 import { syncSnapshot, type GitDiff, type GitRepository } from '../git/index.js';
@@ -24,9 +24,9 @@ import { detectLayer } from './layers.js';
 import type { RawFileChange } from './batcher.js';
 
 export interface ChangeRecorderOptions {
-  db: CodeAnchorDatabase;
+  db: VigiaCodeDatabase;
   project: Project;
-  config: CodeAnchorConfig;
+  config: VigiaCodeConfig;
   git: GitRepository | null;
   summarizer: Summarizer;
   hub: EventHub;
@@ -51,9 +51,9 @@ interface PreparedChange extends SummaryChange {
  */
 export class ChangeRecorder {
   readonly queue: SummaryQueue;
-  private readonly db: CodeAnchorDatabase;
+  private readonly db: VigiaCodeDatabase;
   private readonly project: Project;
-  private readonly config: CodeAnchorConfig;
+  private readonly config: VigiaCodeConfig;
   private readonly git: GitRepository | null;
   private readonly summarizer: Summarizer;
   private readonly hub: EventHub;

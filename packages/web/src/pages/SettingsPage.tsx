@@ -29,7 +29,7 @@ export function SettingsPage() {
       <div className="space-y-5">
         <PageHeader
           title="Configurações"
-          subtitle="Configuração local do CodeAnchor (somente leitura)."
+          subtitle="Configuração local do VigiaCode (somente leitura)."
         />
         <EmptyState
           icon="⚠"
@@ -124,7 +124,7 @@ export function SettingsPage() {
               {mutation.isPending ? 'Testando…' : 'Testar IA'}
             </button>
             <span className="text-[11px] text-[var(--muted)]">
-              Usa a mesma chamada do <code className="font-mono">codeanchor ai test</code>.
+              Usa a mesma chamada do <code className="font-mono">vigiacode ai test</code>.
             </span>
           </div>
 
@@ -169,7 +169,7 @@ export function SettingsPage() {
           <h2 className="text-sm font-semibold text-[var(--text)]">Chaves de API</h2>
           <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
             Configure por variável de ambiente ou em{' '}
-            <code className="font-mono">.codeanchor/.env</code>. As chaves nunca são gravadas no
+            <code className="font-mono">.vigiacode/.env</code>. As chaves nunca são gravadas no
             config nem no banco; este painel mostra apenas se elas estão presentes.
           </p>
           <div className="mt-3">
@@ -177,10 +177,10 @@ export function SettingsPage() {
               label="Chave disponível?"
               value={!keyRequired ? 'não necessária' : keyPresent ? 'sim' : 'não'}
             />
-            <Row label="openai" value="OPENAI_API_KEY ou CODEANCHOR_API_KEY" />
-            <Row label="anthropic" value="ANTHROPIC_API_KEY ou CODEANCHOR_API_KEY" />
+            <Row label="openai" value="OPENAI_API_KEY ou VIGIACODE_API_KEY" />
+            <Row label="anthropic" value="ANTHROPIC_API_KEY ou VIGIACODE_API_KEY" />
             <Row label="gemini" value="GEMINI_API_KEY / GOOGLE_API_KEY" />
-            <Row label="openai-compatible" value="CODEANCHOR_API_KEY" />
+            <Row label="openai-compatible" value="VIGIACODE_API_KEY" />
           </div>
         </section>
       </div>

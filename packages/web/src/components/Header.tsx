@@ -40,7 +40,7 @@ export function Header() {
           </span>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-[var(--text)]">
-              {project.data?.name ?? 'CodeAnchor'}
+              {project.data?.name ?? 'VigiaCode'}
             </p>
             <p className="flex items-center gap-1.5 truncate text-[11px] text-[var(--muted)]">
               {project.data?.branch ? (

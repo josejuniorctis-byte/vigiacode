@@ -47,7 +47,7 @@ export function Sidebar() {
       </nav>
 
       <div className="sticky top-[22rem] mt-10 px-2 text-[11px] leading-relaxed text-[var(--muted)]">
-        <p className="font-semibold text-[var(--text)]">CodeAnchor</p>
+        <p className="font-semibold text-[var(--text)]">VigiaCode</p>
         <p className="mt-1">Agenda de Evolução local.</p>
         <p className="mt-1 font-mono">localhost:4317</p>
       </div>

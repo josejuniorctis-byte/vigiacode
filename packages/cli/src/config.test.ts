@@ -2,20 +2,26 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDefaultConfig, readConfig, writeConfig } from './config.js';
+import {
+  createDefaultConfig,
+  projectEnvPath,
+  readConfig,
+  resolveConfigPaths,
+  writeConfig,
+} from './config.js';
 
 const tempDirs: string[] = [];
 
 function makeProject(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'codeanchor-config-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'vigiacode-config-'));
   tempDirs.push(dir);
   return dir;
 }
 
 function writeRawConfig(projectRoot: string, config: Record<string, unknown>): void {
-  mkdirSync(path.join(projectRoot, '.codeanchor'), { recursive: true });
+  mkdirSync(path.join(projectRoot, '.vigiacode'), { recursive: true });
   writeFileSync(
-    path.join(projectRoot, '.codeanchor', 'config.json'),
+    path.join(projectRoot, '.vigiacode', 'config.json'),
     JSON.stringify(config),
     'utf8',
   );
@@ -28,7 +34,7 @@ function legacyConfig(projectRoot: string, llm: Record<string, unknown>): Record
     watch: { paths: ['src'], ignore: ['node_modules'] },
     llm,
     server: { host: 'localhost', port: 4400 },
-    database: { dialect: 'sqlite', file: 'codeanchor.db' },
+    database: { dialect: 'sqlite', file: 'vigiacode.db' },
   };
 }
 
@@ -114,7 +120,7 @@ describe('config', () => {
     writeConfig(projectRoot, config);
 
     const raw = JSON.parse(
-      readFileSync(path.join(projectRoot, '.codeanchor', 'config.json'), 'utf8'),
+      readFileSync(path.join(projectRoot, '.vigiacode', 'config.json'), 'utf8'),
     ) as { llm: Record<string, unknown> };
 
     expect(raw.llm).toMatchObject({
@@ -190,10 +196,51 @@ describe('config', () => {
 
     writeConfig(projectRoot, config);
     const raw = JSON.parse(
-      readFileSync(path.join(projectRoot, '.codeanchor', 'config.json'), 'utf8'),
+      readFileSync(path.join(projectRoot, '.vigiacode', 'config.json'), 'utf8'),
     ) as { bindings: { rules: Record<string, unknown> } };
     expect(raw.bindings.rules.R1).toEqual({ enabled: false, severity: 'yellow' });
     expect(raw.bindings.rules.R10).toEqual({ enabled: false, severity: 'yellow' });
+  });
+
+  it('lê projetos legados em .codeanchor e mantém codeanchor.db como padrão', () => {
+    const projectRoot = makeProject();
+    mkdirSync(path.join(projectRoot, '.codeanchor'), { recursive: true });
+    writeFileSync(
+      path.join(projectRoot, '.codeanchor', 'config.json'),
+      JSON.stringify({
+        version: 1,
+        project: { name: 'legado', rootPath: projectRoot },
+        llm: { provider: 'none' },
+      }),
+      'utf8',
+    );
+
+    expect(resolveConfigPaths(projectRoot).configDir).toBe(path.join(projectRoot, '.codeanchor'));
+    expect(projectEnvPath(projectRoot)).toBe(path.join(projectRoot, '.codeanchor', '.env'));
+
+    const config = readConfig(projectRoot);
+    expect(config.project.name).toBe('legado');
+    expect(config.database.file).toBe('codeanchor.db');
+    expect(resolveConfigPaths(projectRoot).databaseFile).toBe(
+      path.join(projectRoot, '.codeanchor', 'codeanchor.db'),
+    );
+  });
+
+  it('prefere .vigiacode quando os dois diretórios existem e grava nele', () => {
+    const projectRoot = makeProject();
+    mkdirSync(path.join(projectRoot, '.codeanchor'), { recursive: true });
+    mkdirSync(path.join(projectRoot, '.vigiacode'), { recursive: true });
+    const config = createDefaultConfig({
+      name: 'novo',
+      rootPath: projectRoot,
+      provider: 'none',
+    });
+
+    const written = writeConfig(projectRoot, config);
+
+    expect(written).toBe(path.join(projectRoot, '.vigiacode', 'config.json'));
+    expect(readConfig(projectRoot).project.name).toBe('novo');
+    expect(readConfig(projectRoot).database.file).toBe('vigiacode.db');
   });
 
   it('mantém compatibilidade com campos camelCase da Etapa 2', () => {

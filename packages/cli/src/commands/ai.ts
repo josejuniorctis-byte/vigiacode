@@ -20,21 +20,21 @@ export interface AiTestOptions {
   cwd: string;
 }
 
-/** `codeanchor ai test`: faz uma chamada curta e mostra tempo/modelo/resposta. */
+/** `vigiacode ai test`: faz uma chamada curta e mostra tempo/modelo/resposta. */
 export async function runAiTest(options: AiTestOptions): Promise<void> {
   const projectRoot = path.resolve(options.cwd);
-  logger.intro('CodeAnchor · ai test');
+  logger.intro('VigiaCode · ai test');
 
   if (!configExists(projectRoot)) {
     logger.error('Este projeto ainda não foi inicializado.');
-    logger.hint('Rode "codeanchor init" na raiz do projeto.');
+    logger.hint('Rode "vigiacode init" na raiz do projeto.');
     process.exitCode = 1;
     return;
   }
 
   const envLoad = loadProjectEnv(projectRoot);
   if (envLoad.loaded.length > 0) {
-    logger.detail(`.codeanchor/.env carregado (${envLoad.loaded.length} variável(is)).`);
+    logger.detail(`.vigiacode/.env carregado (${envLoad.loaded.length} variável(is)).`);
   }
 
   const config = readConfig(projectRoot);
@@ -42,9 +42,9 @@ export async function runAiTest(options: AiTestOptions): Promise<void> {
   const model = effectiveModel(config.llm);
 
   if (providerName === 'none') {
-    logger.info('Provider "none": o CodeAnchor usa resumo heurístico local.');
+    logger.info('Provider "none": o VigiaCode usa resumo heurístico local.');
     logger.detail('Nenhuma chamada de IA será feita.');
-    logger.hint('Para usar IA: codeanchor ai use ollama --model llama3.2');
+    logger.hint('Para usar IA: vigiacode ai use ollama --model llama3.2');
     return;
   }
 
@@ -64,7 +64,7 @@ export async function runAiTest(options: AiTestOptions): Promise<void> {
   const started = Date.now();
   try {
     const answer = await provider.complete(
-      'Responda em uma frase curta, em português: qual é o objetivo do CodeAnchor?',
+      'Responda em uma frase curta, em português: qual é o objetivo do VigiaCode?',
       {
         system: 'Você é um assistente técnico objetivo. Responda em português do Brasil.',
       },
@@ -94,14 +94,14 @@ export interface AiUseOptions {
   baseUrl?: string | undefined;
 }
 
-/** `codeanchor ai use <provider>`: troca o provider sem refazer o init. */
+/** `vigiacode ai use <provider>`: troca o provider sem refazer o init. */
 export async function runAiUse(options: AiUseOptions): Promise<void> {
   const projectRoot = path.resolve(options.cwd);
-  logger.intro('CodeAnchor · ai use');
+  logger.intro('VigiaCode · ai use');
 
   if (!configExists(projectRoot)) {
     logger.error('Este projeto ainda não foi inicializado.');
-    logger.hint('Rode "codeanchor init" na raiz do projeto.');
+    logger.hint('Rode "vigiacode init" na raiz do projeto.');
     process.exitCode = 1;
     return;
   }
@@ -122,7 +122,7 @@ export async function runAiUse(options: AiUseOptions): Promise<void> {
   if (provider === 'openai-compatible' && !baseUrl) {
     logger.error('O provider "openai-compatible" exige um endpoint.');
     logger.hint(
-      'codeanchor ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>',
+      'vigiacode ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>',
     );
     process.exitCode = 1;
     return;
@@ -130,7 +130,7 @@ export async function runAiUse(options: AiUseOptions): Promise<void> {
   if (provider === 'openai-compatible' && !model) {
     logger.error('O provider "openai-compatible" exige um modelo.');
     logger.hint(
-      'codeanchor ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>',
+      'vigiacode ai use openai-compatible --base-url https://openrouter.ai/api/v1 --model <modelo>',
     );
     process.exitCode = 1;
     return;
@@ -151,5 +151,5 @@ export async function runAiUse(options: AiUseOptions): Promise<void> {
   if (model) logger.detail(`Modelo: ${model}`);
   if (baseUrl) logger.detail(`Endpoint: ${baseUrl}`);
   logger.blank();
-  logger.hint('Valide com "codeanchor ai test".');
+  logger.hint('Valide com "vigiacode ai test".');
 }

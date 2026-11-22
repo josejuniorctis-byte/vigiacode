@@ -73,18 +73,36 @@ describe('OpenAI provider', () => {
     ]);
   });
 
-  it('usa CODEANCHOR_API_KEY como fallback da chave', async () => {
+  it('usa VIGIACODE_API_KEY como fallback da chave', async () => {
     const { fetchImpl, calls } = mockJson({
       choices: [{ message: { content: 'ok' } }],
     });
     const provider = createProvider(llm('openai'), {
       fetchImpl,
-      env: { CODEANCHOR_API_KEY: 'sk-generica' },
+      env: { VIGIACODE_API_KEY: 'sk-generica' },
     });
 
     await provider.complete('oi');
 
     expect(header(calls[0]!, 'authorization')).toBe('Bearer sk-generica');
+  });
+
+  it('aceita CODEANCHOR_API_KEY como alias legado e prioriza VIGIACODE_API_KEY', async () => {
+    const legacy = mockJson({ choices: [{ message: { content: 'ok' } }] });
+    const legacyProvider = createProvider(llm('openai'), {
+      fetchImpl: legacy.fetchImpl,
+      env: { CODEANCHOR_API_KEY: 'sk-legado' },
+    });
+    await legacyProvider.complete('oi');
+    expect(header(legacy.calls[0]!, 'authorization')).toBe('Bearer sk-legado');
+
+    const both = mockJson({ choices: [{ message: { content: 'ok' } }] });
+    const bothProvider = createProvider(llm('openai'), {
+      fetchImpl: both.fetchImpl,
+      env: { VIGIACODE_API_KEY: 'sk-novo', CODEANCHOR_API_KEY: 'sk-legado' },
+    });
+    await bothProvider.complete('oi');
+    expect(header(both.calls[0]!, 'authorization')).toBe('Bearer sk-novo');
   });
 
   it('healthCheck consulta /models e retorna false em erro', async () => {
@@ -122,7 +140,7 @@ describe('OpenAI-compatible provider', () => {
         model: 'meta/llama',
         baseUrl: 'https://openrouter.ai/api/v1',
       }),
-      { fetchImpl, env: { CODEANCHOR_API_KEY: 'sk-or' } },
+      { fetchImpl, env: { VIGIACODE_API_KEY: 'sk-or' } },
     );
 
     await provider.complete('oi');
@@ -242,7 +260,7 @@ describe('erros de provider', () => {
     expect(message).toContain('PowerShell:');
   });
 
-  it('chave ausente para openai-compatible usa CODEANCHOR_API_KEY', async () => {
+  it('chave ausente para openai-compatible usa VIGIACODE_API_KEY', async () => {
     const provider = createProvider(
       llm('openai-compatible', {
         model: 'modelo',
@@ -251,7 +269,7 @@ describe('erros de provider', () => {
       { fetchImpl: mockJson({}).fetchImpl, env: {} },
     );
 
-    await expect(provider.complete('oi')).rejects.toThrow(/CODEANCHOR_API_KEY/);
+    await expect(provider.complete('oi')).rejects.toThrow(/VIGIACODE_API_KEY/);
   });
 
   it('chave ausente explica as variáveis e exemplos sem expor segredo', async () => {
@@ -267,10 +285,10 @@ describe('erros de provider', () => {
     expect(error).toBeInstanceOf(MissingApiKeyError);
     const message = describeProviderError(error, 'openai');
     expect(message).toContain('OPENAI_API_KEY');
-    expect(message).toContain('CODEANCHOR_API_KEY');
+    expect(message).toContain('VIGIACODE_API_KEY');
     expect(message).toContain('Bash:');
     expect(message).toContain('PowerShell:');
-    expect(message).toContain('.codeanchor/.env');
+    expect(message).toContain('.vigiacode/.env');
   });
 
   it('HTTP 401 vira mensagem clara de autenticação', async () => {

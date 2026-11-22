@@ -23,7 +23,7 @@ function fixturePath(name: string): string {
 }
 
 function copyFixture(name: string): string {
-  const directory = mkdtempSync(path.join(tmpdir(), 'codeanchor-bindings-'));
+  const directory = mkdtempSync(path.join(tmpdir(), 'vigiacode-bindings-'));
   tempDirs.push(directory);
   cpSync(fixturePath(name), directory, { recursive: true });
   return directory;

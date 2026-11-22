@@ -1,5 +1,5 @@
 import { and, desc, eq, like, or, sql } from 'drizzle-orm';
-import type { CodeAnchorDatabase } from './client.js';
+import type { VigiaCodeDatabase } from './client.js';
 import {
   bindingFileCache,
   bindingScans,
@@ -48,7 +48,7 @@ export function bindingIdentityKey(
 }
 
 export function upsertBinding(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   input: UpsertBindingInput,
 ): UpsertBindingResult {
   const existing = db
@@ -125,7 +125,7 @@ export function upsertBinding(
 
 /** Marca como resolvidas as amarrações ativas que não apareceram no scan atual. */
 export function resolveBindingsNotSeen(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   seenKeys: ReadonlySet<string>,
   resolvedAt: string = new Date().toISOString(),
@@ -162,7 +162,7 @@ export interface ListBindingsOptions {
 }
 
 export function listBindings(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   options: ListBindingsOptions = {},
 ): Binding[] {
@@ -195,11 +195,11 @@ export function listBindings(
     .all();
 }
 
-export function findBindingById(db: CodeAnchorDatabase, id: string): Binding | undefined {
+export function findBindingById(db: VigiaCodeDatabase, id: string): Binding | undefined {
   return db.select().from(bindings).where(eq(bindings.id, id)).get();
 }
 
-export function acceptBinding(db: CodeAnchorDatabase, id: string): Binding | undefined {
+export function acceptBinding(db: VigiaCodeDatabase, id: string): Binding | undefined {
   return db
     .update(bindings)
     .set({ accepted: true, lastSeenAt: new Date().toISOString() })
@@ -237,7 +237,7 @@ export interface BindingSummary {
 }
 
 export function summarizeBindings(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   lastScan: BindingScan | null = getLatestBindingScan(db, projectId),
 ): BindingSummary {
@@ -296,7 +296,7 @@ export interface InsertBindingScanInput {
 }
 
 export function insertBindingScan(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   input: InsertBindingScanInput,
 ): BindingScan {
   const inserted = db
@@ -327,7 +327,7 @@ export interface FinishBindingScanInput {
 }
 
 export function finishBindingScan(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   scanId: string,
   input: FinishBindingScanInput,
 ): BindingScan | undefined {
@@ -350,7 +350,7 @@ export function finishBindingScan(
 }
 
 export function listBindingScans(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   limit = 50,
 ): BindingScan[] {
@@ -363,10 +363,7 @@ export function listBindingScans(
     .all();
 }
 
-export function getLatestBindingScan(
-  db: CodeAnchorDatabase,
-  projectId: string,
-): BindingScan | null {
+export function getLatestBindingScan(db: VigiaCodeDatabase, projectId: string): BindingScan | null {
   const row = db
     .select()
     .from(bindingScans)
@@ -387,7 +384,7 @@ export interface PutBindingFileCacheInput {
 }
 
 export function putBindingFileCache(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   input: PutBindingFileCacheInput,
 ): BindingFileCache {
   const existing = db
@@ -421,15 +418,12 @@ export function putBindingFileCache(
   return inserted;
 }
 
-export function listBindingFileCache(
-  db: CodeAnchorDatabase,
-  projectId: string,
-): BindingFileCache[] {
+export function listBindingFileCache(db: VigiaCodeDatabase, projectId: string): BindingFileCache[] {
   return db.select().from(bindingFileCache).where(eq(bindingFileCache.projectId, projectId)).all();
 }
 
 export function deleteBindingFileCache(
-  db: CodeAnchorDatabase,
+  db: VigiaCodeDatabase,
   projectId: string,
   filePath: string,
 ): void {
@@ -438,7 +432,7 @@ export function deleteBindingFileCache(
     .run();
 }
 
-export function clearBindingFileCache(db: CodeAnchorDatabase, projectId: string): void {
+export function clearBindingFileCache(db: VigiaCodeDatabase, projectId: string): void {
   db.delete(bindingFileCache).where(eq(bindingFileCache.projectId, projectId)).run();
 }
 
